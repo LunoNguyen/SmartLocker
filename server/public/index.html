@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Locker IoT System - Nhóm 6</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="12" cy="10" r="3"/>
+            <path d="M12 13v4"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="brand-title">Smart Locker</h2>
+          <span class="brand-sub">Chủ đề 67 - Nhóm 6</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="overview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Tổng quan thiết bị
+        </button>
+        <button class="nav-item" data-tab="shadow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Device Shadow (Digital Twin)
+        </button>
+        <button class="nav-item" data-tab="security">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Kiểm toán An ninh & Dị thường
+        </button>
+        <button class="nav-item" data-tab="backoff">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Cơ chế Lũy tuyến & Băng thông
+        </button>
+        <button class="nav-item" data-tab="packages">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          Giao/Nhận hàng & OTP
+        </button>
+      </nav>
+
+      <div class="sidebar-status">
+        <div class="status-indicator online" id="serverStatusDot"></div>
+        <div>
+          <div class="status-label">Máy chủ Quản lý Smart Locker</div>
+          <div class="status-val" id="serverStatusText">Đang kết nối: Port 5000</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Header Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="pageTitle">Trung tâm Quản lý Tủ Khóa Thông Minh</h1>
+          <span class="badge" id="hwMacBadge">MAC: 24:6F:28:XX:XX:XX</span>
+          <span class="badge badge-success" id="authBadge">Xác thực: HỢP LỆ</span>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-secondary" onclick="triggerGenerateRandomOtp()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Tạo OTP ngẫu nhiên
+          </button>
+          <button class="btn btn-secondary" style="border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;" onclick="triggerDeleteOtp()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Xóa / Hủy OTP
+          </button>
+          <button class="btn btn-danger" id="btnEmergencyQuarantine" onclick="toggleQuarantine()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="quarantineBtnText">Cách ly Khẩn cấp</span>
+          </button>
+          <button class="btn btn-primary" onclick="triggerRemoteUnlock()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+            Mở khóa từ xa
+          </button>
+        </div>
+      </header>
+
+      <!-- Alert Banner for Anomaly / Quarantine -->
+      <div id="quarantineBanner" class="alert-banner alert-critical hidden">
+        <div class="alert-icon">⚠️</div>
+        <div>
+          <strong>CẢNH BÁO: HỆ THỐNG ĐANG BỊ CÁCH LY (QUARANTINED)!</strong>
+          <p>Thiết bị đã ngắt cơ cấu chấp hành và tạm khóa xác thực cục bộ do phát hiện nguy cơ an ninh.</p>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="restoreFromQuarantine()">Gỡ cách ly</button>
+      </div>
+
+      <!-- Tab Content: Overview -->
+      <section id="tab-overview" class="tab-pane active">
+        <!-- Metric Grid -->
+        <div class="stats-grid">
+          <div class="card stat-card">
+            <div class="stat-header">
+              <span class="stat-title">Khóa Điện Từ (Relay 23)</span>
+              <div class="stat-icon-wrapper" id="lockIconBox">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="lockStateText">ĐANG KHÓA</div>
+            <span class="stat-sub">Cơ cấu chấp hành 12V</span>
+          </div>
+
+          <div class="card stat-card">
+            <div class="stat-header">
+              <span class="stat-title">Cảm biến Từ Cửa (Pin 18)</span>
+              <div class="stat-icon-wrapper" id="doorIconBox">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M15 11v2"/></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="doorStateText">ĐÃ ĐÓNG</div>
+            <span class="stat-sub">Trạng thái vật lý thực tế</span>
+          </div>
+
+          <div class="card stat-card">
+            <div class="stat-header">
+              <span class="stat-title">Chu kỳ Đồng bộ (Lũy tuyến)</span>
+              <div class="stat-icon-wrapper">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="syncRateText">2,000 ms</div>
+            <span class="stat-sub" id="syncStatusSub">Mạng bình thường (100% Rate)</span>
+          </div>
+
+          <div class="card stat-card">
+            <div class="stat-header">
+              <span class="stat-title">Xác thực Phần cứng (MAC)</span>
+              <div class="stat-icon-wrapper">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </div>
+            </div>
+            <div class="stat-value text-success" id="macSecText">KHÔNG BỊ THAY CHIP</div>
+            <span class="stat-sub">Bảo mật định danh eFuse</span>
+          </div>
+        </div>
+
+        <!-- Locker Visualizer & Circuit Breakers -->
+        <div class="split-layout">
+          <!-- Locker Physical Simulation Card -->
+          <div class="card locker-preview-card">
+            <h3 class="card-title">Mô phỏng Trực quan Ngăn tủ Smart Locker</h3>
+            <div class="locker-box">
+              <div class="locker-door" id="visualDoor">
+                <div class="locker-handle"></div>
+                <div class="locker-led" id="visualLockLed"></div>
+                <div class="locker-screen-mini">
+                  <span id="visualOledMsg">SẴN SÀNG</span>
+                </div>
+              </div>
+              <div class="locker-inside">
+                <div class="locker-parcel" id="visualParcel">
+                  <div class="parcel-label" id="visualParcelId">PKG-7821</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="locker-details-row">
+              <div><strong>Trạng thái ngăn:</strong> <span id="lockerStatusBadge" class="badge badge-info">CÓ HÀNG</span></div>
+              <div><strong>Gói hàng:</strong> <span id="currentPackageId">PKG-7821</span></div>
+              <div><strong>Thời gian mở cửa:</strong> <span id="doorCounterText">0 lần</span></div>
+            </div>
+          </div>
+
+          <!-- Circuit Breakers / Khoanh vùng cô lập nguồn tấn công -->
+          <div class="card breaker-card">
+            <h3 class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Khoanh vùng Ngắt kết nối / Circuit Breakers
+            </h3>
+            <p class="card-desc">Nếu nghi ngờ một nguồn bị tấn công (QR độc hại, keypad kẹt, đám mây bị chiếm), quản trị viên có thể lập tức cô lập nguồn đó độc lập:</p>
+
+            <div class="breaker-list">
+              <div class="breaker-item">
+                <div class="breaker-info">
+                  <span class="breaker-name">Đầu đọc QR Scanner (UART2 - Pin 16/17)</span>
+                  <span class="breaker-status text-success" id="statusBreakerQr">Hoạt động bình thường</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="switchBreakerQr" checked onchange="toggleSubsystem('qr_reader', this.checked)">
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="breaker-item">
+                <div class="breaker-info">
+                  <span class="breaker-name">Bàn phím ma trận 4x4 (Keypad Matrix)</span>
+                  <span class="breaker-status text-success" id="statusBreakerKeypad">Hoạt động bình thường</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="switchBreakerKeypad" checked onchange="toggleSubsystem('keypad', this.checked)">
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="breaker-item">
+                <div class="breaker-info">
+                  <span class="breaker-name">Đồng bộ Máy chủ Đám mây (Cloud Sync API)</span>
+                  <span class="breaker-status text-success" id="statusBreakerCloud">Đang kết nối</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="switchBreakerCloud" checked onchange="toggleSubsystem('cloud_sync', this.checked)">
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="breaker-item">
+                <div class="breaker-info">
+                  <span class="breaker-name">Nguồn Khóa Điện Từ (Relay Actuator Rail)</span>
+                  <span class="breaker-status text-success" id="statusBreakerActuator">Sẵn sàng cấp điện</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="switchBreakerActuator" checked onchange="toggleSubsystem('lock_actuator', this.checked)">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab Content: Device Shadow -->
+      <section id="tab-shadow" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3 class="card-title">Device Shadowing (Digital Twin Architecture)</h3>
+              <p class="card-desc">Cơ chế đồng bộ hóa trạng thái Mong muốn (Desired) và Trạng thái Thực tế (Reported) với Máy chủ Trung tâm</p>
+            </div>
+            <button class="btn btn-outline" onclick="fetchShadow()">Làm mới Shadow</button>
+          </div>
+
+          <div class="shadow-grid">
+            <div class="shadow-box">
+              <h4>Reported State (Từ ESP32)</h4>
+              <pre id="jsonReported">{}</pre>
+            </div>
+            <div class="shadow-box">
+              <h4>Desired State (Từ Cloud/Admin)</h4>
+              <pre id="jsonDesired">{}</pre>
+            </div>
+          </div>
+
+          <div class="shadow-action-bar">
+            <h4>Gửi Lệnh Desired State:</h4>
+            <div class="btn-group">
+              <button class="btn btn-sm btn-primary" onclick="setDesiredLock('UNLOCKED')">Yêu cầu Mở khóa (Desired: UNLOCKED)</button>
+              <button class="btn btn-sm btn-secondary" onclick="setDesiredLock('LOCKED')">Yêu cầu Đóng khóa (Desired: LOCKED)</button>
+              <button class="btn btn-sm btn-danger" onclick="toggleQuarantine()">Yêu cầu Cách ly khẩn cấp (ISOLATE)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab Content: Security & Anomaly Audit -->
+      <section id="tab-security" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3 class="card-title">Kiểm toán An ninh Liên tục & Phát hiện Dị thường (Edge + Cloud)</h3>
+              <p class="card-desc">Dữ liệu kiểm toán gửi trực tiếp vào Cơ sở Dữ liệu (Bypass MQTT Broker để tối ưu chi phí hạ tầng)</p>
+            </div>
+            <button class="btn btn-outline" onclick="fetchLogs()">Làm mới Nhật ký</button>
+          </div>
+
+          <div class="anomaly-summary-row">
+            <div class="anomaly-badge-card" id="anomalyBruteForceBox">
+              <span class="count" id="countBruteForce">0</span>
+              <span class="lbl">Dị thường Dò mã (Brute Force)</span>
+            </div>
+            <div class="anomaly-badge-card" id="anomalyTamperBox">
+              <span class="count" id="countTamper">0</span>
+              <span class="lbl">Cạy cửa Trái phép (Tamper)</span>
+            </div>
+            <div class="anomaly-badge-card" id="anomalyDoorAjarBox">
+              <span class="count" id="countDoorAjar">0</span>
+              <span class="lbl">Cửa Quên Đóng (>60s)</span>
+            </div>
+            <div class="anomaly-badge-card" id="anomalyChipSwapBox">
+              <span class="count" id="countChipSwap">0</span>
+              <span class="lbl">Nghi vấn Thay Chip (MAC)</span>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Thời gian</th>
+                  <th>Cấp độ</th>
+                  <th>Nguồn</th>
+                  <th>Sự kiện</th>
+                  <th>Chi tiết</th>
+                </tr>
+              </thead>
+              <tbody id="auditLogsBody">
+                <tr><td colspan="5" class="text-center">Đang tải nhật ký kiểm toán...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab Content: Exponential Backoff -->
+      <section id="tab-backoff" class="tab-pane">
+        <div class="card">
+          <h3 class="card-title">Cơ chế Lũy tuyến (Exponential Backoff) & Đồng bộ Cảm biến Ngẫu nhiên</h3>
+          <p class="card-desc">Tự động thích ứng băng thông mạng: Khi mạng chậm hoặc mất kết nối, ESP32 tăng chu kỳ gửi từ 2s -> 4s -> 8s -> 16s... đồng thời chỉ gửi các cảm biến cốt lõi và ngẫu nhiên chọn cảm biến phụ để giảm 70% tải truyền dữ liệu.</p>
+
+          <div class="backoff-timeline">
+            <div class="backoff-step active" id="step2s">
+              <span class="time">2s</span>
+              <span class="title">Bình thường</span>
+              <span class="info">Gửi đầy đủ telemetry</span>
+            </div>
+            <div class="backoff-step" id="step4s">
+              <span class="time">4s</span>
+              <span class="title">Mạng chập chờn</span>
+              <span class="info">Lũy tuyến bậc 1</span>
+            </div>
+            <div class="backoff-step" id="step8s">
+              <span class="time">8s</span>
+              <span class="title">Tắc nghẽn nhẹ</span>
+              <span class="info">Chọn ngẫu nhiên 1 cảm biến phụ</span>
+            </div>
+            <div class="backoff-step" id="step16s">
+              <span class="time">16s</span>
+              <span class="title">Tắc nghẽn nặng</span>
+              <span class="info">Giảm 75% tải payload</span>
+            </div>
+            <div class="backoff-step" id="step32s">
+              <span class="time">32s+</span>
+              <span class="title">Mất kết nối WiFi</span>
+              <span class="info">Chuyển module 4G/Offline</span>
+            </div>
+          </div>
+
+          <div class="backoff-details-box">
+            <h4>Trạng thái Băng thông Hiện tại:</h4>
+            <div class="details-grid">
+              <div><strong>Chu kỳ truyền hiện hành:</strong> <span id="boCurrentInterval">2000 ms</span></div>
+              <div><strong>Số gói tin thành công liên tiếp:</strong> <span id="boConsecutiveSuccess">12</span></div>
+              <div><strong>Chiến lược chọn cảm biến:</strong> <span id="boSensorStrategy" class="text-success">Toàn bộ cảm biến (Normal)</span></div>
+              <div><strong>Mức tiết kiệm băng thông ước tính:</strong> <span id="boSavedBandwidth">0%</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab Content: Packages & OTP -->
+      <section id="tab-packages" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3 class="card-title">Quản lý Kiện hàng & Cấp phát OTP cho Shipper / Cư dân</h3>
+              <p class="card-desc">Cư dân có thể nhập OTP 6 số qua Keypad 4x4 hoặc quét mã QR từ điện thoại</p>
+            </div>
+            <button class="btn btn-primary" onclick="showNewPackageModal()">Tạo đơn giao hàng mới</button>
+          </div>
+
+          <div class="package-cards-grid" id="packagesGrid">
+            <!-- Dynamic packages list -->
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal: Create Package -->
+  <div id="modalNewPackage" class="modal hidden">
+    <div class="modal-card">
+      <h3>Tạo Đơn Hàng Mới Cho Shipper</h3>
+      <div class="form-group">
+        <label>Tên Cư dân / Phòng</label>
+        <input type="text" id="inputResident" class="form-control" placeholder="Nguyen Van A - P.1204">
+      </div>
+      <div class="form-group">
+        <label>Số điện thoại</label>
+        <input type="text" id="inputPhone" class="form-control" placeholder="0901234567">
+      </div>
+      <div class="form-group">
+        <label>Mã OTP (Để trống để tự tạo 6 số ngẫu nhiên)</label>
+        <input type="text" id="inputOtp" class="form-control" placeholder="Tự sinh mã ngẫu nhiên">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeNewPackageModal()">Hủy</button>
+        <button class="btn btn-primary" onclick="submitNewPackage()">Tạo & Cấp mã</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "author": "Smart Locker Team",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 180,
+      "left": 320,
+      "attrs": {}
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled1",
+      "top": -80,
+      "left": 280,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-membrane-keypad",
+      "id": "keypad1",
+      "top": 140,
+      "left": 680,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-uart-terminal",
+      "id": "qrreader1",
+      "top": 140,
+      "left": -260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay1",
+      "top": 460,
+      "left": 560,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 470,
+      "left": 700,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "lockled1",
+      "top": 440,
+      "left": 730,
+      "attrs": {
+        "color": "red",
+        "label": "LOCK"
+      }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "doorsensor1",
+      "top": 480,
+      "left": 300,
+      "rotate": 90,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer1",
+      "top": 460,
+      "left": 60,
+      "attrs": {
+        "volume": "0.2"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 190,
+      "left": -20,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "statusled1",
+      "top": 160,
+      "left": -90,
+      "attrs": {
+        "color": "green",
+        "label": "STATUS"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX0",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX0",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "oled1:SDA",
+      "esp:D21",
+      "orange",
+      []
+    ],
+    [
+      "oled1:SCL",
+      "esp:D22",
+      "gold",
+      []
+    ],
+    [
+      "oled1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "oled1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "keypad1:R1",
+      "esp:D13",
+      "blue",
+      []
+    ],
+    [
+      "keypad1:R2",
+      "esp:D12",
+      "blue",
+      []
+    ],
+    [
+      "keypad1:R3",
+      "esp:D14",
+      "blue",
+      []
+    ],
+    [
+      "keypad1:R4",
+      "esp:D27",
+      "blue",
+      []
+    ],
+    [
+      "keypad1:C1",
+      "esp:D26",
+      "purple",
+      []
+    ],
+    [
+      "keypad1:C2",
+      "esp:D25",
+      "purple",
+      []
+    ],
+    [
+      "keypad1:C3",
+      "esp:D33",
+      "purple",
+      []
+    ],
+    [
+      "keypad1:C4",
+      "esp:D32",
+      "purple",
+      []
+    ],
+    [
+      "qrreader1:TXD",
+      "esp:D17",
+      "green",
+      []
+    ],
+    [
+      "qrreader1:RXD",
+      "esp:D16",
+      "yellow",
+      []
+    ],
+    [
+      "qrreader1:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "qrreader1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "relay1:IN",
+      "esp:D23",
+      "cyan",
+      []
+    ],
+    [
+      "relay1:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "relay1:COM",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "relay1:NO",
+      "r1:1",
+      "orange",
+      []
+    ],
+    [
+      "r1:2",
+      "lockled1:A",
+      "orange",
+      []
+    ],
+    [
+      "lockled1:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "doorsensor1:1",
+      "esp:D18",
+      "cyan",
+      []
+    ],
+    [
+      "doorsensor1:2",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "buzzer1:1",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "buzzer1:2",
+      "esp:D15",
+      "yellow",
+      []
+    ],
+    [
+      "esp:D2",
+      "r2:1",
+      "green",
+      []
+    ],
+    [
+      "r2:2",
+      "statusled1:A",
+      "green",
+      []
+    ],
+    [
+      "statusled1:C",
+      "esp:GND.1",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}
