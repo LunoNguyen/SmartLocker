@@ -9,16 +9,19 @@
 #define WIFI_SSID           "Wokwi-GUEST"
 #define WIFI_PASS           ""
 
-// --- CẤU HÌNH MQTT BROKER (MOSQUITTO LOCAL TRÊN MÁY ẢO UBUNTU) ---
-// Wokwi chạy trên Windows, ESP32 mô phỏng đi ra mạng qua Private Gateway của Wokwi
-// (tức là đi qua chính máy Windows), nên chỉ cần Windows kết nối được tới broker là ESP32 kết nối được.
-//
-// Chọn 1 trong 2 cách (xem mosquitto/README.md):
-//  - Cách A (khuyên dùng): VM dùng card mạng Bridged / Host-only
-//      -> đặt MQTT_BROKER_HOST = IP của VM (lệnh `hostname -I` trên Ubuntu), VD "192.168.56.101"
-//  - Cách B: VM dùng NAT + Port Forwarding 1883 (host) -> 1883 (guest)
-//      -> đặt MQTT_BROKER_HOST = "host.wokwi.internal" (= localhost của máy Windows)
-#define MQTT_BROKER_HOST    "192.168.209.128" // IP máy ảo Ubuntu chạy Mosquitto (ĐỔI LẠI CHO ĐÚNG)
+// --- CẤU HÌNH MQTT BROKER (MOSQUITTO LOCAL) ---
+// Chọn 1 trong 2 môi trường bên dưới:
+// #define RUN_ON_DOCKER_WINDOWS     // BẬT dòng này nếu chạy Docker trên Windows (Không cần máy ảo)
+#define RUN_ON_VMWARE_UBUNTU   // BẬT dòng này nếu chạy Mosquitto trên máy ảo Ubuntu
+
+#if defined(RUN_ON_DOCKER_WINDOWS)
+  #define MQTT_BROKER_HOST    "host.wokwi.internal" // Tự động trỏ về Windows/Docker, không lo đổi IP
+#elif defined(RUN_ON_VMWARE_UBUNTU)
+  #define MQTT_BROKER_HOST    "192.168.209.128"     // IP máy ảo Ubuntu của bạn bạn
+#else
+  #define MQTT_BROKER_HOST    "host.wokwi.internal"
+#endif
+
 #define MQTT_BROKER_PORT    1883             // Cổng MQTT tiêu chuẩn của Mosquitto
 #define MQTT_USERNAME       "gateway_admin"  // Tài khoản Mosquitto (mosquitto_passwd)
 #define MQTT_PASSWORD       "123456"         // Mật khẩu Mosquitto
@@ -36,6 +39,10 @@
 #define DEVICE_ID           "SMART_LOCKER_01"
 
 // --- THỜI GIAN MỞ KHÓA TỰ ĐỘNG ---
-#define UNLOCK_DURATION_MS  6000  // Tự động đóng chốt sau 6 giây nếu không mở cửa
+#define UNLOCK_DURATION_MS        6000   // Tự động đóng chốt sau 6 giây nếu không mở cửa
+
+// --- CẤU HÌNH TỦ CÁ NHÂN (1 NGƯỜI DÙNG) & BỎ LŨY TUYẾN BĂNG THÔNG ---
+#define OTP_ROTATION_INTERVAL_MS  300000 // Tự động đổi mã OTP ngẫu nhiên mỗi 5 phút (300s = 300,000ms)
+#define TELEMETRY_INTERVAL_MS     5000   // Chu kỳ gửi dữ liệu định kỳ cố định 5 giây (Đã bỏ lũy tuyến)
 
 #endif // CONFIG_H

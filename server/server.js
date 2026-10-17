@@ -57,10 +57,19 @@ const database = {
     lastReportedTime: Date.now()
   },
 
-  // Active OTPs for packages
+  // Personal Locker (1 User) - Dynamic 5-minute Rotating OTP
+  personalLocker: {
+    owner: 'Chủ sở hữu cá nhân',
+    currentOtp: '123456',
+    generatedAt: Date.now(),
+    durationSec: 300,
+    remainingSec: 300,
+    status: 'ACTIVE'
+  },
+
+  // Active OTPs (Personal single-user)
   activePackages: [
-    { packageId: 'PKG-7821', resident: 'Nguyen Van A (P.1204)', phone: '0901234567', otp: '123456', status: 'IN_LOCKER', createdAt: Date.now() - 3600000 },
-    { packageId: 'PKG-9932', resident: 'Tran Thi B (P.0802)', phone: '0918765432', otp: '888888', status: 'DELIVERING', createdAt: Date.now() - 1800000 }
+    { packageId: 'PERSONAL', resident: 'Chủ sở hữu cá nhân', phone: 'Chính chủ', otp: '123456', status: 'ACTIVE', createdAt: Date.now() }
   ],
 
   // Direct Ingestion Database for Security Audits (Bypasses MQTT to save cloud costs)
@@ -174,22 +183,47 @@ const server = http.createServer(async (req, res) => {
 
   // 3. Device Shadow / ThingsBoard Attributes Sync (/api/v1/shadow or /api/v1/:token/attributes)
   if ((pathname === '/api/v1/shadow' || pathname.includes('/attributes')) && method === 'GET') {
+    const elapsedSec = Math.floor((Date.now() - database.personalLocker.generatedAt) / 1000);
+    const remSec = Math.max(0, database.personalLocker.durationSec - elapsedSec);
+    database.personalLocker.remainingSec = database.deviceShadow.reported.otp_remaining_sec !== undefined 
+      ? database.deviceShadow.reported.otp_remaining_sec 
+      : remSec;
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       desired: database.deviceShadow.desired,
       reported: database.deviceShadow.reported,
-      activePackages: database.activePackages,
+      personalLocker: database.personalLocker,
+      activePackages: [
+        {
+          packageId: 'PERSONAL',
+          resident: 'Chủ sở hữu cá nhân',
+          phone: 'Chính chủ',
+          otp: database.personalLocker.currentOtp,
+          status: database.personalLocker.status,
+          remainingSec: database.personalLocker.remainingSec,
+          createdAt: database.personalLocker.generatedAt
+        }
+      ],
       version: database.deviceShadow.version
     }));
     return;
   }
 
-  // Device reports shadow updates
-  if (pathname === '/api/v1/shadow/reported' && method === 'POST') {
+  // Device reports shadow updates (/api/v1/shadow or /api/v1/shadow/reported)
+  if ((pathname === '/api/v1/shadow' || pathname === '/api/v1/shadow/reported') && method === 'POST') {
     const data = await parseJsonBody(req);
     Object.assign(database.deviceShadow.reported, data);
     database.deviceShadow.lastReportedTime = Date.now();
     database.deviceShadow.version++;
+
+    if (data.active_otp) {
+      database.personalLocker.currentOtp = data.active_otp;
+      database.personalLocker.status = data.otp_active ? 'ACTIVE' : 'USED';
+      if (data.otp_remaining_sec !== undefined) {
+        database.personalLocker.remainingSec = data.otp_remaining_sec;
+      }
+    }
 
     // Clear command in desired if acknowledged
     if (database.deviceShadow.desired.command !== 'NONE' && 
@@ -198,7 +232,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, version: database.deviceShadow.version }));
+    res.end(JSON.stringify({ 
+      success: true, 
+      version: database.deviceShadow.version,
+      desired: database.deviceShadow.desired
+    }));
     return;
   }
 
@@ -295,47 +333,68 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 8. Trigger new random OTP generation
+  // 8. Trigger new 5-minute random OTP generation for Personal Locker
   if (pathname === '/api/v1/packages/generate-random' && method === 'POST') {
     const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const pkgId = 'PKG-' + Math.floor(1000 + Math.random() * 9000);
-    const newPkg = {
-      packageId: pkgId,
-      resident: 'Cu dan (Ngau nhien)',
-      phone: '09' + Math.floor(10000000 + Math.random() * 90000000),
-      otp: randomOtp,
-      status: 'DELIVERING',
-      createdAt: Date.now()
-    };
-    database.activePackages.unshift(newPkg);
-    database.deviceShadow.desired.new_package = newPkg;
+    database.personalLocker.currentOtp = randomOtp;
+    database.personalLocker.generatedAt = Date.now();
+    database.personalLocker.remainingSec = 300;
+    database.personalLocker.status = 'ACTIVE';
+
     database.deviceShadow.desired.command = 'GENERATE_OTP';
-    database.deviceShadow.reported.package_id = pkgId;
+    database.deviceShadow.desired.new_otp = randomOtp;
+    database.deviceShadow.reported.package_id = 'PERSONAL';
     database.deviceShadow.reported.otp_active = true;
+    database.deviceShadow.version++;
+
+    database.activePackages = [
+      {
+        packageId: 'PERSONAL',
+        resident: 'Chủ sở hữu cá nhân',
+        phone: 'Chính chủ',
+        otp: randomOtp,
+        status: 'ACTIVE',
+        remainingSec: 300,
+        createdAt: Date.now()
+      }
+    ];
 
     database.auditLogs.unshift({
       id: Date.now(),
       timestamp: new Date().toISOString(),
-      level: 'DELIVERY',
-      source: 'RABBITMQ_SERVER',
-      event: 'NEW_RANDOM_OTP_ACTIVATED',
-      details: `Activated new random OTP: ${randomOtp} for Package ${pkgId}`
+      level: 'SECURITY',
+      source: 'PERSONAL_LOCKER_SERVER',
+      event: 'OTP_5MIN_ROTATED',
+      details: `Generated new 5-min rolling OTP: ${randomOtp} for Personal Locker`
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, package: newPkg }));
+    res.end(JSON.stringify({ 
+      success: true, 
+      personalLocker: database.personalLocker,
+      package: {
+        packageId: 'PERSONAL',
+        resident: 'Chủ sở hữu cá nhân',
+        otp: randomOtp,
+        remainingSec: 300
+      }
+    }));
     return;
   }
 
   // 9. Delete / Revoke current OTP
   if (pathname === '/api/v1/packages/delete-otp' && method === 'POST') {
-    const pkgId = database.deviceShadow.reported.package_id || 'CURRENT';
-    database.activePackages = database.activePackages.filter(p => p.packageId !== pkgId);
+    database.personalLocker.currentOtp = '------';
+    database.personalLocker.status = 'REVOKED';
+    database.personalLocker.remainingSec = 0;
+
     database.deviceShadow.desired.command = 'DELETE_OTP';
     database.deviceShadow.desired.new_package = null;
     database.deviceShadow.reported.package_id = 'NONE';
     database.deviceShadow.reported.otp_active = false;
     database.deviceShadow.version++;
+
+    database.activePackages = [];
 
     database.auditLogs.unshift({
       id: Date.now(),
@@ -343,11 +402,11 @@ const server = http.createServer(async (req, res) => {
       level: 'ADMIN',
       source: 'ADMIN_DASHBOARD',
       event: 'OTP_REVOKED_DELETED',
-      details: `Active OTP and Package ${pkgId} deleted and revoked by Administrator`
+      details: `Active 5-minute OTP revoked by Owner`
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, message: 'OTP deleted successfully' }));
+    res.end(JSON.stringify({ success: true, message: 'OTP revoked successfully' }));
     return;
   }
 

@@ -40,13 +40,9 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           Kiểm toán An ninh & Dị thường
         </button>
-        <button class="nav-item" data-tab="backoff">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Cơ chế Lũy tuyến & Băng thông
-        </button>
         <button class="nav-item" data-tab="packages">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-          Giao/Nhận hàng & OTP
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Mã OTP Tủ Cá Nhân (5 Phút)
         </button>
       </nav>
 
@@ -126,13 +122,13 @@
 
           <div class="card stat-card">
             <div class="stat-header">
-              <span class="stat-title">Chu kỳ Đồng bộ (Lũy tuyến)</span>
+              <span class="stat-title">Chu kỳ Đồng bộ (Cố định)</span>
               <div class="stat-icon-wrapper">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               </div>
             </div>
-            <div class="stat-value" id="syncRateText">2,000 ms</div>
-            <span class="stat-sub" id="syncStatusSub">Mạng bình thường (100% Rate)</span>
+            <div class="stat-value" id="syncRateText">5,000 ms</div>
+            <span class="stat-sub" id="syncStatusSub">Định kỳ cố định (Đã bỏ lũy tuyến)</span>
           </div>
 
           <div class="card stat-card">
@@ -313,93 +309,61 @@
         </div>
       </section>
 
-      <!-- Tab Content: Exponential Backoff -->
-      <section id="tab-backoff" class="tab-pane">
-        <div class="card">
-          <h3 class="card-title">Cơ chế Lũy tuyến (Exponential Backoff) & Đồng bộ Cảm biến Ngẫu nhiên</h3>
-          <p class="card-desc">Tự động thích ứng băng thông mạng: Khi mạng chậm hoặc mất kết nối, ESP32 tăng chu kỳ gửi từ 2s -> 4s -> 8s -> 16s... đồng thời chỉ gửi các cảm biến cốt lõi và ngẫu nhiên chọn cảm biến phụ để giảm 70% tải truyền dữ liệu.</p>
-
-          <div class="backoff-timeline">
-            <div class="backoff-step active" id="step2s">
-              <span class="time">2s</span>
-              <span class="title">Bình thường</span>
-              <span class="info">Gửi đầy đủ telemetry</span>
-            </div>
-            <div class="backoff-step" id="step4s">
-              <span class="time">4s</span>
-              <span class="title">Mạng chập chờn</span>
-              <span class="info">Lũy tuyến bậc 1</span>
-            </div>
-            <div class="backoff-step" id="step8s">
-              <span class="time">8s</span>
-              <span class="title">Tắc nghẽn nhẹ</span>
-              <span class="info">Chọn ngẫu nhiên 1 cảm biến phụ</span>
-            </div>
-            <div class="backoff-step" id="step16s">
-              <span class="time">16s</span>
-              <span class="title">Tắc nghẽn nặng</span>
-              <span class="info">Giảm 75% tải payload</span>
-            </div>
-            <div class="backoff-step" id="step32s">
-              <span class="time">32s+</span>
-              <span class="title">Mất kết nối WiFi</span>
-              <span class="info">Chuyển module 4G/Offline</span>
-            </div>
-          </div>
-
-          <div class="backoff-details-box">
-            <h4>Trạng thái Băng thông Hiện tại:</h4>
-            <div class="details-grid">
-              <div><strong>Chu kỳ truyền hiện hành:</strong> <span id="boCurrentInterval">2000 ms</span></div>
-              <div><strong>Số gói tin thành công liên tiếp:</strong> <span id="boConsecutiveSuccess">12</span></div>
-              <div><strong>Chiến lược chọn cảm biến:</strong> <span id="boSensorStrategy" class="text-success">Toàn bộ cảm biến (Normal)</span></div>
-              <div><strong>Mức tiết kiệm băng thông ước tính:</strong> <span id="boSavedBandwidth">0%</span></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Tab Content: Packages & OTP -->
+      <!-- Tab Content: Personal Locker & 5-Min Rotating OTP -->
       <section id="tab-packages" class="tab-pane">
         <div class="card">
           <div class="card-header-flex">
             <div>
-              <h3 class="card-title">Quản lý Kiện hàng & Cấp phát OTP cho Shipper / Cư dân</h3>
-              <p class="card-desc">Cư dân có thể nhập OTP 6 số qua Keypad 4x4 hoặc quét mã QR từ điện thoại</p>
+              <h3 class="card-title">Quản lý Mã OTP Tủ Cá Nhân (Xoay vòng 5 Phút)</h3>
+              <p class="card-desc">Tủ khóa thông minh dành cho 1 người dùng. Mã OTP tự động đổi ngẫu nhiên mỗi 5 phút một lần để bảo mật tuyệt đối.</p>
             </div>
-            <button class="btn btn-primary" onclick="showNewPackageModal()">Tạo đơn giao hàng mới</button>
+            <div style="display:flex; gap:10px;">
+              <button class="btn btn-secondary" onclick="triggerGenerateRandomOtp()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Đổi mã OTP mới ngay
+              </button>
+              <button class="btn btn-primary" onclick="triggerRemoteUnlock()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                Mở khóa từ xa
+              </button>
+            </div>
           </div>
 
-          <div class="package-cards-grid" id="packagesGrid">
-            <!-- Dynamic packages list -->
+          <div class="personal-otp-hero" style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:12px; padding:30px; margin-top:20px; text-align:center;">
+            <div style="font-size:0.9rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Mã OTP Mở Tủ Hiện Tại (6 Chữ Số)</div>
+            <div id="personalOtpValue" style="font-size:3.5rem; font-weight:800; letter-spacing:12px; color:var(--color-primary, #3b82f6); font-family:monospace; margin:15px 0;">123456</div>
+            
+            <div style="display:flex; justify-content:center; align-items:center; gap:12px; margin-bottom:20px;">
+              <span class="badge badge-success" id="personalOtpStatusBadge">ĐANG HOẠT ĐỘNG</span>
+              <span style="font-size:0.95rem; color:var(--text-muted);">Tự động đổi sau: <strong id="personalOtpCountdown" style="color:#ef4444; font-size:1.1rem;">05:00</strong></span>
+            </div>
+
+            <div style="max-width:400px; margin:0 auto; background:rgba(255,255,255,0.1); height:8px; border-radius:4px; overflow:hidden;">
+              <div id="otpCountdownBar" style="width:100%; height:100%; background:linear-gradient(90deg, #10b981, #3b82f6); transition:width 1s linear;"></div>
+            </div>
+
+            <div style="margin-top:25px; display:flex; justify-content:center; gap:12px;">
+              <button class="btn btn-outline" onclick="copyPersonalOtp()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Sao chép mã OTP
+              </button>
+              <button class="btn btn-danger" onclick="triggerDeleteOtp()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Hủy mã ngay
+              </button>
+            </div>
+          </div>
+
+          <div style="margin-top:25px; padding:15px; border-radius:8px; background:rgba(59, 130, 246, 0.08); border-left:4px solid #3b82f6; font-size:0.9rem; line-height:1.6;">
+            <strong>ℹ️ Hướng dẫn sử dụng Tủ Cá Nhân:</strong>
+            <ul style="margin:6px 0 0 20px; padding:0;">
+              <li>Mã OTP này dùng để mở tủ trên bàn phím Keypad 4x4 (Bấm số trực tiếp rồi nhấn phím <strong>[#]</strong>).</li>
+              <li>Mỗi mã có giá trị sử dụng <strong>1 lần duy nhất</strong>. Sau khi mở tủ hoặc sau <strong>5 phút</strong>, hệ thống tự động đổi mã mới.</li>
+              <li>Bạn có thể bấm phím <strong>[A]</strong> trên Keypad hoặc bấm nút <strong>"Đổi mã OTP mới ngay"</strong> ở trên để đổi mã bất cứ lúc nào.</li>
+            </ul>
           </div>
         </div>
       </section>
-    </main>
-  </div>
-
-  <!-- Modal: Create Package -->
-  <div id="modalNewPackage" class="modal hidden">
-    <div class="modal-card">
-      <h3>Tạo Đơn Hàng Mới Cho Shipper</h3>
-      <div class="form-group">
-        <label>Tên Cư dân / Phòng</label>
-        <input type="text" id="inputResident" class="form-control" placeholder="Nguyen Van A - P.1204">
-      </div>
-      <div class="form-group">
-        <label>Số điện thoại</label>
-        <input type="text" id="inputPhone" class="form-control" placeholder="0901234567">
-      </div>
-      <div class="form-group">
-        <label>Mã OTP (Để trống để tự tạo 6 số ngẫu nhiên)</label>
-        <input type="text" id="inputOtp" class="form-control" placeholder="Tự sinh mã ngẫu nhiên">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeNewPackageModal()">Hủy</button>
-        <button class="btn btn-primary" onclick="submitNewPackage()">Tạo & Cấp mã</button>
-      </div>
-    </div>
-  </div>
 
   <script src="app.js"></script>
 </body>

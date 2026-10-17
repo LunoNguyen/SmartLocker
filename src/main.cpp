@@ -9,13 +9,12 @@
 #include "config.h"
 
 /* =========================================================================
- * CHỦ ĐỀ 67: TỦ KHÓA GIAO HÀNG THÔNG MINH SMART LOCKER - NHÓM 6
+ * CHỦ ĐỀ 67: TỦ KHÓA CÁ NHÂN THÔNG MINH SMART LOCKER (1 NGƯỜI DÙNG) - NHÓM 6
  * Nâng cấp:
- * 1. Khóa vĩnh viễn OTP sau 1 lần mở (Single-Use OTP Locking).
- * 2. Tự động/thủ công tái kích hoạt mã OTP ngẫu nhiên mới (A = Sinh mã mới).
- * 3. Tích hợp Mosquitto Local MQTT Broker tren may ao Ubuntu (User: gateway_admin).
- * 4. Cấu hình MQTT tập trung trong config.h dễ dàng thay đổi khi dùng Local.
- * 5. Cơ chế Lũy tuyến (Exponential Backoff) & Anomaly Tamper Engine.
+ * 1. Tủ đồ cá nhân 1 người: Bỏ tạo đơn cư dân, cơ chế tự động xoay vòng mã OTP 5 phút/lần.
+ * 2. Khóa vĩnh viễn OTP sau 1 lần mở (Single-Use OTP) & tự động tái tạo mã mới sau khi dùng.
+ * 3. Tích hợp Mosquitto Local MQTT Broker tren Docker / May ao Ubuntu.
+ * 4. XÓA BỎ QUẢN LÝ LŨY TUYẾN BĂNG THÔNG, sử dụng chu kỳ gửi dữ liệu cố định (5 giây/lần).
  * ========================================================================= */
 
 // --- PIN DEFINITIONS (Khớp chuẩn 100% diagram.json) ---
@@ -75,10 +74,11 @@ unsigned long doorOpenedTimestamp = 0;
 // Bộ đếm sử dụng
 unsigned int doorOpenCount = 0;
 
-// --- QUẢN LÝ MÃ OTP 1 LẦN (SINGLE-USE OTP) ---
-String activeOtp = "123456";          // Mã OTP hiện hành
-bool isOtpActive = true;              // Cờ trạng thái: Đang hiệu lực hay đã bị khóa
-String currentPackageId = "PKG-7821"; // Mã kiện hàng gắn với OTP
+// --- QUẢN LÝ MÃ OTP TỦ CÁ NHÂN (1 NGƯỜI DÙNG - TỰ ĐỘNG ĐỔI 5 PHÚT/LẦN) ---
+String activeOtp = "123456";          // Mã OTP 6 chữ số hiện hành
+bool isOtpActive = true;              // Cờ trạng thái: Đang hiệu lực hay đã sử dụng
+unsigned long otpCreatedAt = 0;       // Thời điểm tạo mã OTP (để tính chu kỳ 5 phút)
+String currentPackageId = "PERSONAL"; // Tủ cá nhân 1 người (Đã bỏ tạo đơn cư dân)
 String adminMasterPin = "9999";       // PIN quản trị cứu hộ cục bộ
 
 // --- SUB-SYSTEM CIRCUIT BREAKERS (Khoanh vùng ngắt nguồn/cô lập) ---
@@ -103,13 +103,9 @@ bool isDoorAjarAlerted = false;
 String enteredPin = "";
 String qrInputBuffer = "";
 
-// --- CƠ CHẾ LŨY TUYẾN (EXPONENTIAL BACKOFF) & SYNC ---
-unsigned long syncIntervalMs = 2000;       // Khởi đầu 2s
-const unsigned long MIN_SYNC_INTERVAL = 2000;
-const unsigned long MAX_SYNC_INTERVAL = 64000;
+// --- CHU KỲ ĐỒNG BỘ ĐỊNH KỲ CỐ ĐỊNH (ĐÃ XÓA BỎ LŨY TUYẾN BĂNG THÔNG) ---
 unsigned long lastSyncTime = 0;
-unsigned int consecutiveSuccesses = 0;
-unsigned int consecutiveErrors = 0;
+unsigned long lastOledRefreshTime = 0; // Để làm mới đồng hồ đếm ngược trên OLED mỗi giây
 
 // MQTT Reconnection Tracker
 unsigned long lastMqttReconnectAttempt = 0;
@@ -207,6 +203,9 @@ void setup() {
   // Khởi tạo hạt giống ngẫu nhiên từ nhiễu analog chân GPIO 34
   randomSeed(analogRead(34) + millis());
 
+  // Khởi tạo mã OTP ngẫu nhiên 5 phút đầu tiên cho tủ cá nhân
+  generateNewRandomOtp("SYSTEM_BOOT");
+
   // Tiếng bíp khởi động thành công
   playSuccessChime();
 
@@ -223,7 +222,12 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // 1. Quản lý kết nối MQTT Mosquitto (Không block chương trình)
+  // 1. Tự động xoay vòng mã OTP ngẫu nhiên mỗi 5 phút cho tủ cá nhân (1 người)
+  if (now - otpCreatedAt >= OTP_ROTATION_INTERVAL_MS) {
+    generateNewRandomOtp("AUTO_ROTATION_5MIN");
+  }
+
+  // 2. Quản lý kết nối MQTT Mosquitto (Không block chương trình)
   if (WiFi.status() == WL_CONNECTED && breakers.cloud_sync) {
     if (!mqttClient.connected()) {
       if (now - lastMqttReconnectAttempt > 5000) {
@@ -235,15 +239,15 @@ void loop() {
     }
   }
 
-  // 2. Quét cảm biến vật lý & kiểm toán an ninh liên tục
+  // 3. Quét cảm biến vật lý & kiểm toán an ninh liên tục
   checkSensorsAndAnomalies();
 
-  // 3. Quét đầu đọc QR Scanner (nếu breaker cho phép)
+  // 4. Quét đầu đọc QR Scanner (nếu breaker cho phép)
   if (breakers.qr_reader && !isQuarantined) {
     handleQrCodeInput();
   }
 
-  // 4. Quét bàn phím ma trận (nếu breaker cho phép và không bị khóa tạm)
+  // 5. Quét bàn phím ma trận (nếu breaker cho phép và không bị khóa tạm)
   if (breakers.keypad && !isQuarantined) {
     if (now >= lockoutUntil) {
       char key = scanKeypad();
@@ -253,23 +257,29 @@ void loop() {
     }
   }
 
-  // 5. Tự động đóng chốt khóa khi hết thời gian mở
+  // 6. Tự động đóng chốt khóa khi hết thời gian mở
   if (isUnlocked) {
     if (now - unlockTimestamp >= UNLOCK_DURATION_MS) {
       executeLock();
     }
   }
 
-  // 6. Đồng bộ Device Shadow & Đo lường Lũy tuyến (Exponential Backoff)
+  // 7. Đồng bộ Device Shadow & Đo lường Định kỳ Cố định (Đã bỏ lũy tuyến băng thông)
   if (breakers.cloud_sync) {
-    if (now - lastSyncTime >= syncIntervalMs) {
+    if (now - lastSyncTime >= TELEMETRY_INTERVAL_MS) {
       lastSyncTime = now;
       syncDeviceShadowAndTelemetry();
     }
   }
 
-  // 7. Nhịp tim LED trạng thái (Heartbeat)
-  unsigned long heartbeatPeriod = isQuarantined ? 150 : (syncIntervalMs > MIN_SYNC_INTERVAL ? 1500 : 800);
+  // 8. Cập nhật đồng hồ đếm ngược OTP trên màn hình OLED mỗi giây
+  if (currentState == STATE_IDLE && now - lastOledRefreshTime >= 1000) {
+    lastOledRefreshTime = now;
+    updateOledUI();
+  }
+
+  // 9. Nhịp tim LED trạng thái (Heartbeat đều đặn 800ms)
+  unsigned long heartbeatPeriod = isQuarantined ? 150 : 800;
   if (now - lastHeartbeatTime >= heartbeatPeriod) {
     lastHeartbeatTime = now;
     ledState = !ledState;
@@ -472,28 +482,29 @@ void publishMqttStatus() {
 }
 
 // =========================================================================
-// SINH MÃ OTP NGẪU NHIÊN MỚI (TÁI KÍCH HOẠT)
+// SINH MÃ OTP NGẪU NHIÊN MỚI CHO TỦ CÁ NHÂN (XOAY VÒNG 5 PHÚT)
 // =========================================================================
 void generateNewRandomOtp(const String& source) {
   // Sinh ngẫu nhiên số có 6 chữ số (100000 -> 999999)
-  long randomCode = random(100000, 999999);
+  long randomCode = random(100000, 1000000);
   activeOtp = String(randomCode);
   isOtpActive = true;
-  currentPackageId = "PKG-" + String(random(1000, 9999));
+  otpCreatedAt = millis();
+  currentPackageId = "PERSONAL";
 
   Serial.println(F("\n✨ ========================================="));
-  Serial.print(F("🎁 [KÍCH HOẠT OTP MỚI] Nguồn: "));
-  Serial.println(source);
-  Serial.print(F("📦 Mã kiện hàng : "));
-  Serial.println(currentPackageId);
+  Serial.print(F("🔄 [OTP 5 PHÚT] ĐÃ ĐỔI MÃ OTP MỚI CHO TỦ CÁ NHÂN (Nguồn: "));
+  Serial.print(source);
+  Serial.println(F(")"));
   Serial.print(F("🔑 MÃ OTP MỞ TỦ : "));
   Serial.println(activeOtp);
+  Serial.println(F("⏱️ Thời hạn     : 5 phút (Tự động xoay vòng)"));
   Serial.println(F("✨ ========================================="));
 
   playSuccessChime();
-  publishMqttEvent("NEW_OTP_GENERATED", "Package: " + currentPackageId + " | OTP: " + activeOtp);
+  publishMqttEvent("OTP_ROTATED_5MIN", "New 5-min OTP: " + activeOtp);
   publishMqttStatus();
-  sendAuditLogToDbDirect("DELIVERY", "NEW_OTP_ACTIVATED", "Package " + currentPackageId + " generated new OTP: " + activeOtp);
+  sendAuditLogToDbDirect("SECURITY", "OTP_ROTATED_5MIN", "New 5-min OTP " + activeOtp + " generated by " + source);
 
   updateOledUI();
 }
@@ -567,21 +578,13 @@ void handleKeyInput(char key) {
     return;
   }
 
-  // Phím A: SHIPPER GỬI HÀNG HOẶC SINH MÃ OTP NGẪU NHIÊN MỚI
+  // Phím A: ĐỔI MÃ OTP MỚI NGAY LẬP TỨC (CHỦ TỦ CÁ NHÂN)
   if (key == 'A') {
-    if (!isOtpActive || currentPackageId == "NONE") {
-      // Nếu tủ đang trống / OTP cũ đã bị khóa -> Sinh mã OTP mới!
-      generateNewRandomOtp("KEYPAD_A_SHIPPER");
-    } else {
-      Serial.println(F("[INFO] Tu dang co kien hang va OTP con hieu luc."));
-      enteredPin = "";
-      currentState = STATE_INPUT_OTP;
-      updateOledUI();
-    }
+    generateNewRandomOtp("KEYPAD_A_OWNER");
     return;
   }
 
-  // Phím B: Cư dân nhận hàng (Nhập OTP)
+  // Phím B: MỞ TỦ (CHỦ TỦ NHẬP MÃ OTP)
   if (key == 'B') {
     enteredPin = "";
     currentState = STATE_INPUT_OTP;
@@ -787,6 +790,11 @@ void executeLock() {
   currentState = STATE_IDLE;
   Serial.println(F("[ACTUATOR] Da khoa chot tu dong an toan."));
 
+  // Tự động sinh ngay mã OTP 5 phút mới cho lần dùng kế tiếp nếu mã cũ đã dùng
+  if (!isOtpActive) {
+    generateNewRandomOtp("AUTO_POST_UNLOCK");
+  }
+
   publishMqttStatus();
   sendAuditLogToDbDirect("ACCESS", "LOCKER_LOCKED", "Locker secured and locked.");
   updateOledUI();
@@ -934,20 +942,30 @@ void updateOledUI() {
     return;
   }
 
-  // STATE_IDLE Mặc định
+  // STATE_IDLE Mặc định (Tủ cá nhân 1 người dùng)
   display.setTextSize(1);
-  display.setCursor(12, 2);
-  display.println(F("SMART LOCKER N6"));
+  display.setCursor(6, 2);
+  display.println(F("TU CA NHAN (1 USER)"));
   display.drawLine(0, 11, 127, 11, SSD1306_WHITE);
 
-  // Trạng thái ngăn & mã OTP
+  // Tính thời gian đếm ngược của OTP 5 phút
+  long remMs = (long)OTP_ROTATION_INTERVAL_MS - (long)(millis() - otpCreatedAt);
+  long remSec = remMs > 0 ? (remMs / 1000) : 0;
+  long remMin = remSec / 60;
+  long remSecMod = remSec % 60;
+
   display.setCursor(0, 16);
   if (isOtpActive) {
-    display.print(F("OTP: KICH HOAT ("));
-    display.print(currentPackageId);
-    display.print(F(")"));
+    display.print(F("OTP: "));
+    display.print(activeOtp);
+    display.print(F(" ["));
+    display.print(remMin);
+    display.print(F(":"));
+    if (remSecMod < 10) display.print(F("0"));
+    display.print(remSecMod);
+    display.print(F("]"));
   } else {
-    display.print(F("OTP: DA KHOA (Het han)"));
+    display.print(F("OTP: DA DUNG (Khoa)"));
   }
 
   display.setCursor(0, 28);
@@ -960,28 +978,21 @@ void updateOledUI() {
 
   display.drawLine(0, 52, 127, 52, SSD1306_WHITE);
   display.setCursor(0, 55);
-  if (isOtpActive) {
-    display.print(F("Bam B nhan | A gui"));
-  } else {
-    display.print(F("Bam A: Tao OTP ngau nhien"));
-  }
+  display.print(F("A:Doi OTP | B:Nhap ma"));
 
   display.display();
 }
 
 // =========================================================================
-// ĐỒNG BỘ DEVICE SHADOW & ĐO LƯỜNG LŨY TUYẾN (EXPONENTIAL BACKOFF)
+// ĐỒNG BỘ DEVICE SHADOW & TELEMETRY ĐỊNH KỲ CỐ ĐỊNH (ĐÃ XÓA BỎ LŨY TUYẾN)
 // =========================================================================
 void syncDeviceShadowAndTelemetry() {
   if (WiFi.status() != WL_CONNECTED) {
-    consecutiveErrors++;
-    consecutiveSuccesses = 0;
-    syncIntervalMs = min(syncIntervalMs * 2, MAX_SYNC_INTERVAL);
-    Serial.print(F("⚠️ [LUY TUYEN] Mat mang! Tang chu ky len: "));
-    Serial.print(syncIntervalMs);
-    Serial.println(F(" ms"));
     return;
   }
+
+  long remMs = (long)OTP_ROTATION_INTERVAL_MS - (long)(millis() - otpCreatedAt);
+  long remainingSec = remMs > 0 ? (remMs / 1000) : 0;
 
   // Đẩy Telemetry qua MQTT Mosquitto nếu đang kết nối
   if (mqttClient.connected()) {
@@ -989,7 +1000,9 @@ void syncDeviceShadowAndTelemetry() {
     mqttDoc["rssi"] = WiFi.RSSI();
     mqttDoc["free_heap"] = ESP.getFreeHeap();
     mqttDoc["uptime"] = millis() / 1000;
-    mqttDoc["sync_rate"] = syncIntervalMs;
+    mqttDoc["sync_rate"] = TELEMETRY_INTERVAL_MS;
+    mqttDoc["otp"] = activeOtp;
+    mqttDoc["otp_remaining_sec"] = remainingSec;
     String mqttPayload;
     serializeJson(mqttDoc, mqttPayload);
     mqttClient.publish(MQTT_TOPIC_TELEMETRY, mqttPayload.c_str());
@@ -1007,35 +1020,22 @@ void syncDeviceShadowAndTelemetry() {
   doc["lock_state"] = isUnlocked ? "UNLOCKED" : "LOCKED";
   doc["door_state"] = isDoorOpen ? "OPEN" : "CLOSED";
   doc["quarantine_mode"] = isQuarantined;
-  doc["sync_interval_ms"] = syncIntervalMs;
+  doc["sync_interval_ms"] = TELEMETRY_INTERVAL_MS;
   doc["otp_active"] = isOtpActive;
-
-  if (syncIntervalMs == MIN_SYNC_INTERVAL) {
-    doc["locker_status"] = isOtpActive ? "OCCUPIED" : "AVAILABLE";
-    doc["package_id"] = currentPackageId;
-    doc["wifi_rssi"] = WiFi.RSSI();
-    doc["free_heap"] = ESP.getFreeHeap();
-    doc["uptime_sec"] = millis() / 1000;
-    doc["door_open_count"] = doorOpenCount;
-  } else {
-    // Lũy tuyến: Đồng bộ ngẫu nhiên cảm biến
-    int choice = random(0, 3);
-    if (choice == 0) doc["wifi_rssi"] = WiFi.RSSI();
-    else if (choice == 1) doc["free_heap"] = ESP.getFreeHeap();
-    else doc["door_open_count"] = doorOpenCount;
-  }
+  doc["active_otp"] = activeOtp;
+  doc["otp_remaining_sec"] = remainingSec;
+  doc["locker_status"] = isUnlocked ? "OPEN" : "SECURED";
+  doc["package_id"] = currentPackageId;
+  doc["wifi_rssi"] = WiFi.RSSI();
+  doc["free_heap"] = ESP.getFreeHeap();
+  doc["uptime_sec"] = millis() / 1000;
+  doc["door_open_count"] = doorOpenCount;
 
   String requestBody;
   serializeJson(doc, requestBody);
   int httpCode = http.POST(requestBody);
 
   if (httpCode == HTTP_CODE_OK) {
-    consecutiveSuccesses++;
-    consecutiveErrors = 0;
-    if (consecutiveSuccesses >= 2 && syncIntervalMs > MIN_SYNC_INTERVAL) {
-      syncIntervalMs = max(MIN_SYNC_INTERVAL, syncIntervalMs / 2);
-    }
-
     String response = http.getString();
     StaticJsonDocument<512> respDoc;
     if (!deserializeJson(respDoc, response)) {
@@ -1053,10 +1053,6 @@ void syncDeviceShadowAndTelemetry() {
         }
       }
     }
-  } else {
-    consecutiveErrors++;
-    consecutiveSuccesses = 0;
-    syncIntervalMs = min(syncIntervalMs * 2, MAX_SYNC_INTERVAL);
   }
   http.end();
 }
