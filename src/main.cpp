@@ -13,7 +13,7 @@
  * Nâng cấp:
  * 1. Khóa vĩnh viễn OTP sau 1 lần mở (Single-Use OTP Locking).
  * 2. Tự động/thủ công tái kích hoạt mã OTP ngẫu nhiên mới (A = Sinh mã mới).
- * 3. Tích hợp RabbitMQ / Local MQTT Message Broker (User: luno, Pass: luno).
+ * 3. Tích hợp Mosquitto Local MQTT Broker tren may ao Ubuntu (User: gateway_admin).
  * 4. Cấu hình MQTT tập trung trong config.h dễ dàng thay đổi khi dùng Local.
  * 5. Cơ chế Lũy tuyến (Exponential Backoff) & Anomaly Tamper Engine.
  * ========================================================================= */
@@ -173,7 +173,7 @@ void setup() {
     display.setTextSize(1);
     display.setCursor(0, 0);
     display.println(F("SMART LOCKER N6"));
-    display.println(F("Ket noi RabbitMQ..."));
+    display.println(F("Ket noi Mosquitto..."));
     display.display();
   }
 
@@ -201,7 +201,7 @@ void setup() {
   Serial.print(F("[BAO MAT VAT LY] Hardware MAC: "));
   Serial.println(deviceMacAddress);
 
-  // Cấu hình MQTT RabbitMQ
+  // Cấu hình MQTT Mosquitto
   setupMqtt();
 
   // Khởi tạo hạt giống ngẫu nhiên từ nhiễu analog chân GPIO 34
@@ -223,7 +223,7 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // 1. Quản lý kết nối MQTT RabbitMQ (Không block chương trình)
+  // 1. Quản lý kết nối MQTT Mosquitto (Không block chương trình)
   if (WiFi.status() == WL_CONNECTED && breakers.cloud_sync) {
     if (!mqttClient.connected()) {
       if (now - lastMqttReconnectAttempt > 5000) {
@@ -362,12 +362,12 @@ void setupMqtt() {
 void reconnectMqtt() {
   if (mqttClient.connected()) return;
 
-  Serial.print(F("[MQTT] Dang ket noi RabbitMQ (User: "));
+  Serial.print(F("[MQTT] Dang ket noi Mosquitto (User: "));
   Serial.print(MQTT_USERNAME);
   Serial.println(F(")..."));
 
   if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-    Serial.println(F("✅ [MQTT] Ket noi RabbitMQ thanh cong!"));
+    Serial.println(F("✅ [MQTT] Ket noi Mosquitto thanh cong!"));
     // Dang ky nhan lenh dieu khien tu xa
     mqttClient.subscribe(MQTT_TOPIC_COMMAND);
     Serial.print(F("[MQTT] Da dang ky lang nghe topic: "));
@@ -375,8 +375,16 @@ void reconnectMqtt() {
 
     publishMqttStatus();
   } else {
+    int rc = mqttClient.state();
     Serial.print(F("⚠️ [MQTT] Ket noi that bai, ma loi rc="));
-    Serial.println(mqttClient.state());
+    Serial.print(rc);
+    switch (rc) {
+      case -4: Serial.println(F(" (Timeout - broker khong phan hoi)")); break;
+      case -2: Serial.println(F(" (Khong mo duoc TCP - sai IP/port, VM chua bat, firewall?)")); break;
+      case 4:  Serial.println(F(" (Sai username/password)")); break;
+      case 5:  Serial.println(F(" (Khong duoc phep - kiem tra allow_anonymous/password_file)")); break;
+      default: Serial.println(); break;
+    }
   }
 }
 
@@ -395,7 +403,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (err) {
     // Neu la chuoi lenh truc tiep
     if (message == "UNLOCK") {
-      executeUnlock("MQTT_COMMAND", "Lenh mo truc tiep qua RabbitMQ");
+      executeUnlock("MQTT_COMMAND", "Lenh mo truc tiep qua Mosquitto");
     } else if (message == "NEW_OTP" || message == "GENERATE_OTP") {
       generateNewRandomOtp("MQTT_BROKER");
     } else if (message == "DELETE_OTP" || message == "REVOKE_OTP" || message == "DEL") {
@@ -412,7 +420,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (doc.containsKey("command")) {
     String cmd = doc["command"].as<String>();
     if (cmd == "UNLOCK") {
-      executeUnlock("MQTT_COMMAND", "Lenh mo JSON qua RabbitMQ");
+      executeUnlock("MQTT_COMMAND", "Lenh mo JSON qua Mosquitto");
     } else if (cmd == "NEW_OTP" || cmd == "GENERATE_OTP") {
       if (doc.containsKey("otp")) {
         activeOtp = doc["otp"].as<String>();
@@ -763,7 +771,7 @@ void executeUnlock(const String& method, const String& details) {
   Serial.println(F("] ĐÃ BỊ VÔ HIỆU HÓA, KHÔNG THỂ DÙNG LẠI!"));
   Serial.println(F("🔒 ==================================================="));
 
-  // Gửi sự kiện lên MQTT RabbitMQ
+  // Gửi sự kiện lên MQTT Mosquitto
   publishMqttEvent("OTP_CLAIMED_AND_LOCKED", "Package " + finishedPkg + " received with OTP. OTP is now expired.");
   publishMqttStatus();
 
@@ -975,7 +983,7 @@ void syncDeviceShadowAndTelemetry() {
     return;
   }
 
-  // Đẩy Telemetry qua MQTT RabbitMQ nếu đang kết nối
+  // Đẩy Telemetry qua MQTT Mosquitto nếu đang kết nối
   if (mqttClient.connected()) {
     StaticJsonDocument<256> mqttDoc;
     mqttDoc["rssi"] = WiFi.RSSI();
