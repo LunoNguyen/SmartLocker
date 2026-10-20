@@ -64,9 +64,11 @@ function renderShadow(data) {
   const reported = data.reported || {};
   const desired = data.desired || {};
 
-  // JSON code displays
-  document.getElementById('jsonReported').textContent = JSON.stringify(reported, null, 2);
-  document.getElementById('jsonDesired').textContent = JSON.stringify(desired, null, 2);
+  // JSON code displays (nếu có phần tử hiển thị)
+  const jsonRep = document.getElementById('jsonReported');
+  if (jsonRep) jsonRep.textContent = JSON.stringify(reported, null, 2);
+  const jsonDes = document.getElementById('jsonDesired');
+  if (jsonDes) jsonDes.textContent = JSON.stringify(desired, null, 2);
 
   // Lock State
   const lockText = document.getElementById('lockStateText');
@@ -354,19 +356,22 @@ function renderPackages(packages) {
     <div class="pkg-card">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span class="pkg-code">${pkg.packageId}</span>
-        <span class="badge ${pkg.status === 'DELIVERING' ? 'badge-info' : 'badge-success'}">${pkg.status}</span>
+        <span class="badge ${pkg.status === 'DELIVERING' ? 'badge-info' : (pkg.status === 'IN_LOCKER' ? 'badge-warning' : 'badge-success')}">${pkg.status}</span>
       </div>
       <div style="margin-top:10px; font-size:0.85rem;">
-        <div><strong>Người nhận:</strong> ${pkg.resident}</div>
-        <div><strong>Điện thoại:</strong> ${pkg.phone}</div>
+        <div><strong>Người nhận:</strong> ${escapeHtml(pkg.resident)}</div>
+        <div><strong>Điện thoại:</strong> ${escapeHtml(pkg.phone)}</div>
       </div>
       <div style="text-align:center; margin-top:8px;">
         <div style="font-size:0.75rem; color:var(--text-muted);">Mã OTP Mở Tủ:</div>
         <div class="pkg-otp-display">${pkg.otp}</div>
       </div>
-      <div style="display:flex; gap:6px; margin-top:10px;">
-        <button class="btn btn-sm btn-outline" style="flex:1" onclick="copyOtp('${pkg.otp}')">Sao chép OTP</button>
-        <button class="btn btn-sm btn-primary" style="flex:1" onclick="sendQrCodeToLocker('${pkg.otp}')">Mở tủ bằng mã này</button>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:10px;">
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-sm btn-outline" style="flex:1" onclick="copyOtp('${pkg.otp}')">Sao chép OTP</button>
+          <button class="btn btn-sm btn-primary" style="flex:1" onclick="activateOtpToLocker('${pkg.packageId}', '${pkg.otp}')">Gửi OTP tới ESP (MQTT)</button>
+        </div>
+        <button class="btn btn-sm btn-secondary" style="width:100%" onclick="verifyOtpViaMqtt('${pkg.otp}')">Kiểm tra mã OTP (MQTT)</button>
       </div>
     </div>
   `).join('');
@@ -374,7 +379,40 @@ function renderPackages(packages) {
 
 function copyOtp(otp) {
   navigator.clipboard.writeText(otp);
-  alert(`Đã sao chép OTP: ${otp}. Hãy bấm mã này trên Keypad hoặc nhập vào QR Reader!`);
+  alert(`Đã sao chép OTP: ${otp}. Hãy nhập mã này trên bàn phím Keypad của ESP32!`);
+}
+
+async function activateOtpToLocker(packageId, otp) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/packages/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ packageId, otp })
+    });
+    const result = await res.json();
+    fetchShadow();
+    alert(`Đã gửi OTP [${otp}] của kiện [${packageId}] qua MQTT Broker tới ESP32 thành công!\nBây giờ bạn có thể nhập mã này trên bàn phím ESP32 để mở tủ.`);
+  } catch (err) {
+    alert('Lỗi kích hoạt OTP tới ESP32!');
+  }
+}
+
+async function verifyOtpViaMqtt(otp) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/packages/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp })
+    });
+    const result = await res.json();
+    if (result.valid) {
+      alert(`✅ Mã OTP [${otp}] HỢP LỆ! (Kiện: ${result.package ? result.package.packageId : 'N/A'})\nĐã gửi lệnh kiểm tra tới MQTT Broker.`);
+    } else {
+      alert(`❌ Mã OTP [${otp}] KHÔNG HỢP LỆ hoặc đã hết hạn/bị xóa!`);
+    }
+  } catch (err) {
+    alert('Lỗi kiểm tra mã OTP!');
+  }
 }
 
 function sendQrCodeToLocker(otp) {
@@ -386,7 +424,7 @@ async function triggerGenerateRandomOtp() {
     const res = await fetch(`${API_BASE}/api/v1/packages/generate-random`, { method: 'POST' });
     const result = await res.json();
     fetchShadow();
-    alert(`Đã kích hoạt ngẫu nhiên thành công!\nKiện hàng: ${result.package.packageId}\nMÃ OTP MỚI: ${result.package.otp}\n(Đã gửi thông báo tới RabbitMQ & ESP32)`);
+    alert(`✨ Đã tạo mã OTP ngẫu nhiên thành công!\nKiện hàng: ${result.package.packageId}\nMÃ OTP MỚI: ${result.package.otp}\n(Đã gửi qua MQTT Broker để ESP32 cập nhật và kiểm tra)`);
   } catch (err) {
     alert('Lỗi kích hoạt OTP ngẫu nhiên!');
   }
@@ -400,7 +438,7 @@ async function triggerDeleteOtp() {
     const res = await fetch(`${API_BASE}/api/v1/packages/delete-otp`, { method: 'POST' });
     const result = await res.json();
     fetchShadow();
-    alert('Đã xóa và hủy bỏ mã OTP thành công!\nLệnh đã được gửi tới ESP32 và RabbitMQ.');
+    alert('Đã xóa và hủy bỏ mã OTP thành công!\nLệnh đã được gửi tới ESP32 qua MQTT Broker.');
   } catch (err) {
     alert('Lỗi khi xóa mã OTP!');
   }
@@ -434,7 +472,7 @@ async function submitNewPackage() {
     const result = await res.json();
     closeNewPackageModal();
     fetchShadow();
-    alert(`Đã cấp đơn hàng thành công! Mã OTP mở tủ là: ${result.package.otp}`);
+    alert(`✅ Đã tạo đơn hàng thành công!\nKiện hàng: ${result.package.packageId}\nMã OTP: ${result.package.otp}\n(Đã gửi thông điệp tới MQTT Broker để ESP32 kiểm tra)`);
   } catch (err) {
     alert('Lỗi tạo đơn hàng!');
   }
