@@ -442,6 +442,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       } else {
         generateNewRandomOtp("MQTT_REMOTE_REQ");
       }
+    } else if (cmd == "CHECK_OTP" || cmd == "VERIFY_OTP") {
+      String testOtp = doc.containsKey("otp") ? doc["otp"].as<String>() : "";
+      if (isOtpActive && testOtp.length() > 0 && testOtp == activeOtp) {
+        Serial.println(F("✅ [MQTT] Kiem tra OTP hop le! Dang mo tu..."));
+        executeUnlock("MQTT_VERIFY_OTP", "Xac thuc OTP hop le qua RabbitMQ Broker: " + testOtp);
+      } else {
+        Serial.println(F("❌ [MQTT] Kiem tra OTP that bai (Sai ma hoac da het han)!"));
+        playErrorChime();
+        publishMqttEvent("OTP_CHECK_FAILED", "Kiem tra OTP that bai cho ma: " + testOtp);
+      }
     } else if (cmd == "DELETE_OTP" || cmd == "REVOKE_OTP") {
       deleteCurrentOtp("MQTT_JSON_COMMAND");
     } else if (cmd == "ISOLATE") {

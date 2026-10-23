@@ -6,9 +6,293 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const net = require('net');
 
 const PORT = process.env.PORT || 5000;
 const DB_FILE = path.join(__dirname, 'database.json');
+
+// --- CẤU HÌNH MQTT BROKER (RABBITMQ / LOCAL BROKER) ---
+const MQTT_CONFIG = {
+  host: process.env.MQTT_HOST || '127.0.0.1',
+  port: parseInt(process.env.MQTT_PORT || '1883', 10),
+  username: process.env.MQTT_USERNAME || 'luno',
+  password: process.env.MQTT_PASSWORD || 'luno',
+  clientId: 'SmartLocker_Server_' + Math.floor(1000 + Math.random() * 9000)
+};
+
+const MQTT_TOPIC_COMMAND   = 'smartlocker/locker1/command';
+const MQTT_TOPIC_STATUS    = 'smartlocker/locker1/status';
+const MQTT_TOPIC_TELEMETRY = 'smartlocker/locker1/telemetry';
+const MQTT_TOPIC_EVENTS    = 'smartlocker/locker1/events';
+
+// Client MQTT v3.1.1 Thuần Node.js (Không cần cài thư viện ngoài)
+class SimpleMqttClient {
+  constructor(options = {}) {
+    this.host = options.host || '127.0.0.1';
+    this.port = options.port || 1883;
+    this.username = options.username || 'luno';
+    this.password = options.password || 'luno';
+    this.clientId = options.clientId || ('SmartLockerServer_' + Math.floor(Math.random() * 10000));
+    this.socket = null;
+    this.connected = false;
+    this.subscriptions = new Set();
+    this.reconnectTimer = null;
+    this.pingTimer = null;
+    this.onMessage = options.onMessage || null;
+  }
+
+  connect() {
+    if (this.socket) {
+      try { this.socket.destroy(); } catch (e) {}
+    }
+
+    this.socket = new net.Socket();
+    this.socket.setTimeout(60000);
+
+    this.socket.on('connect', () => {
+      this._sendConnect();
+    });
+
+    this.socket.on('data', (data) => {
+      this._handleData(data);
+    });
+
+    this.socket.on('error', (err) => {
+      this.connected = false;
+    });
+
+    this.socket.on('close', () => {
+      this.connected = false;
+      this._scheduleReconnect();
+    });
+
+    this.socket.on('timeout', () => {
+      this._sendPing();
+    });
+
+    try {
+      this.socket.connect(this.port, this.host);
+    } catch (e) {
+      this._scheduleReconnect();
+    }
+  }
+
+  _scheduleReconnect() {
+    clearInterval(this.pingTimer);
+    if (!this.reconnectTimer) {
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, 5000);
+    }
+  }
+
+  _sendConnect() {
+    const protoName = Buffer.from('MQTT');
+    let flags = 0x02; // Clean session
+    if (this.username) flags |= 0x80;
+    if (this.password) flags |= 0x40;
+
+    const varHeader = Buffer.concat([
+      Buffer.from([0x00, protoName.length]),
+      protoName,
+      Buffer.from([0x04, flags, 0x00, 0x3C])
+    ]);
+
+    const clientIdBuf = Buffer.from(this.clientId);
+    const payloadParts = [
+      Buffer.from([0x00, clientIdBuf.length]),
+      clientIdBuf
+    ];
+
+    if (this.username) {
+      const uBuf = Buffer.from(this.username);
+      payloadParts.push(Buffer.from([0x00, uBuf.length]), uBuf);
+    }
+    if (this.password) {
+      const pBuf = Buffer.from(this.password);
+      payloadParts.push(Buffer.from([0x00, pBuf.length]), pBuf);
+    }
+
+    const payload = Buffer.concat(payloadParts);
+    const remLength = varHeader.length + payload.length;
+    const fixedHeader = Buffer.from([0x10, ...this._encodeLength(remLength)]);
+
+    this.socket.write(Buffer.concat([fixedHeader, varHeader, payload]));
+  }
+
+  _encodeLength(len) {
+    const bytes = [];
+    do {
+      let byte = len % 128;
+      len = Math.floor(len / 128);
+      if (len > 0) byte |= 0x80;
+      bytes.push(byte);
+    } while (len > 0);
+    return bytes;
+  }
+
+  _sendPing() {
+    if (this.connected && this.socket && !this.socket.destroyed) {
+      this.socket.write(Buffer.from([0xC0, 0x00]));
+    }
+  }
+
+  publish(topic, message) {
+    const payloadStr = typeof message === 'string' ? message : JSON.stringify(message);
+    if (!this.connected || !this.socket || this.socket.destroyed) {
+      console.log(`[MQTT] Broker chua san sang, luu lenh MQTT: ${topic} -> ${payloadStr}`);
+      return false;
+    }
+    const topicBuf = Buffer.from(topic);
+    const msgBuf = Buffer.from(payloadStr);
+    const varHeader = Buffer.concat([
+      Buffer.from([0x00, topicBuf.length]),
+      topicBuf
+    ]);
+    const remLen = varHeader.length + msgBuf.length;
+    const packet = Buffer.concat([
+      Buffer.from([0x30, ...this._encodeLength(remLen)]),
+      varHeader,
+      msgBuf
+    ]);
+    this.socket.write(packet);
+    console.log(`[MQTT PUBLISH] -> ${topic}: ${payloadStr}`);
+    return true;
+  }
+
+  subscribe(topic) {
+    this.subscriptions.add(topic);
+    if (!this.connected || !this.socket || this.socket.destroyed) return;
+    const topicBuf = Buffer.from(topic);
+    const packetId = Buffer.from([0x00, 0x01]);
+    const payload = Buffer.concat([
+      Buffer.from([0x00, topicBuf.length]),
+      topicBuf,
+      Buffer.from([0x00]) // QoS 0
+    ]);
+    const remLen = packetId.length + payload.length;
+    const packet = Buffer.concat([
+      Buffer.from([0x82, ...this._encodeLength(remLen)]),
+      packetId,
+      payload
+    ]);
+    this.socket.write(packet);
+    console.log(`[MQTT SUBSCRIBE] -> ${topic}`);
+  }
+
+  _handleData(data) {
+    if (data.length < 2) return;
+    const packetType = data[0] >> 4;
+    if (packetType === 2) {
+      // CONNACK
+      if (data[3] === 0) {
+        this.connected = true;
+        console.log(`✅ [MQTT] Central Server da ket noi RabbitMQ/MQTT tai ${this.host}:${this.port}`);
+        this.pingTimer = setInterval(() => this._sendPing(), 30000);
+        for (const topic of this.subscriptions) {
+          this.subscribe(topic);
+        }
+      } else {
+        console.log(`⚠️ [MQTT] Broker tu choi ket noi, ma rc: ${data[3]}`);
+      }
+    } else if (packetType === 3) {
+      // PUBLISH
+      try {
+        let idx = 1;
+        while (data[idx] & 0x80) idx++;
+        idx++;
+        const topicLen = (data[idx] << 8) | data[idx + 1];
+        idx += 2;
+        const topic = data.slice(idx, idx + topicLen).toString();
+        idx += topicLen;
+        const payload = data.slice(idx).toString();
+        if (this.onMessage) {
+          this.onMessage(topic, payload);
+        }
+      } catch (e) {}
+    }
+  }
+}
+
+// Xử lý sự kiện nhận từ MQTT Broker
+function handleIncomingMqtt(topic, payloadStr) {
+  try {
+    const data = JSON.parse(payloadStr);
+
+    // Khi ESP32 mở khóa và khóa OTP (Single-Use OTP)
+    if (topic === MQTT_TOPIC_EVENTS && data.event === 'OTP_CLAIMED_AND_LOCKED') {
+      database.deviceShadow.reported.otp_active = false;
+      database.deviceShadow.reported.lock_state = 'UNLOCKED';
+      const match = (data.details || '').match(/Package\s+(\S+)/);
+      const curPkgId = (match && match[1]) || data.package_id || database.deviceShadow.reported.package_id;
+      const curPkg = database.activePackages.find(p => p.packageId === curPkgId || p.packageId === database.deviceShadow.reported.package_id);
+      if (curPkg) {
+        curPkg.status = 'CLAIMED_DELIVERED';
+      }
+      database.auditLogs.unshift({
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'ACCESS',
+        source: 'ESP32_MQTT',
+        event: 'OTP_CLAIMED_SUCCESS',
+        details: data.details || `Locker unlocked and OTP expired for ${curPkgId}`
+      });
+    }
+
+    // Khi ESP32 bấm phím A sinh mã ngẫu nhiên trực tiếp tại tủ
+    if (topic === MQTT_TOPIC_EVENTS && data.event === 'NEW_OTP_GENERATED') {
+      const match = (data.details || '').match(/Package:\s*(\S+)\s*\|\s*OTP:\s*(\S+)/);
+      if (match) {
+        const pkgId = match[1];
+        const otpCode = match[2];
+        const existing = database.activePackages.find(p => p.packageId === pkgId);
+        if (!existing) {
+          database.activePackages.unshift({
+            packageId: pkgId,
+            resident: 'Cư dân (Bấm phím A tại tủ)',
+            phone: 'Tại tủ',
+            otp: otpCode,
+            status: 'DELIVERING',
+            createdAt: Date.now()
+          });
+        }
+        database.deviceShadow.reported.package_id = pkgId;
+        database.deviceShadow.reported.otp_active = true;
+      }
+    }
+
+    // Cập nhật trạng thái tổng quan từ MQTT
+    if (topic === MQTT_TOPIC_STATUS) {
+      if (data.lock_state) database.deviceShadow.reported.lock_state = data.lock_state;
+      if (data.door_state) database.deviceShadow.reported.door_state = data.door_state;
+      if (data.package_id) database.deviceShadow.reported.package_id = data.package_id;
+      if (data.otp_active !== undefined) database.deviceShadow.reported.otp_active = data.otp_active;
+    }
+  } catch (err) {}
+}
+
+const mqttClient = new SimpleMqttClient({
+  host: MQTT_CONFIG.host,
+  port: MQTT_CONFIG.port,
+  username: MQTT_CONFIG.username,
+  password: MQTT_CONFIG.password,
+  clientId: MQTT_CONFIG.clientId,
+  onMessage: handleIncomingMqtt
+});
+
+// Helper functions gửi lệnh qua MQTT Broker
+function publishMqttCommand(cmdObj) {
+  return mqttClient.publish(MQTT_TOPIC_COMMAND, JSON.stringify(cmdObj));
+}
+
+function publishMqttOtp(otp, packageId) {
+  return publishMqttCommand({
+    command: 'NEW_OTP',
+    otp: otp,
+    package: packageId
+  });
+}
 
 // In-Memory Database & Device Shadow Store
 const database = {
@@ -333,17 +617,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 8. Trigger new 5-minute random OTP generation for Personal Locker
+  // 8. Trigger new random OTP generation & publish via MQTT Broker
   if (pathname === '/api/v1/packages/generate-random' && method === 'POST') {
     const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    database.personalLocker.currentOtp = randomOtp;
-    database.personalLocker.generatedAt = Date.now();
-    database.personalLocker.remainingSec = 300;
-    database.personalLocker.status = 'ACTIVE';
-
-    database.deviceShadow.desired.command = 'GENERATE_OTP';
-    database.deviceShadow.desired.new_otp = randomOtp;
-    database.deviceShadow.reported.package_id = 'PERSONAL';
+    const pkgId = 'PKG-' + Math.floor(1000 + Math.random() * 9000);
+    const newPkg = {
+      packageId: pkgId,
+      resident: 'Cu dan (Ngau nhien)',
+      phone: '09' + Math.floor(10000000 + Math.random() * 90000000),
+      otp: randomOtp,
+      status: 'DELIVERING',
+      createdAt: Date.now()
+    };
+    database.activePackages.unshift(newPkg);
+    database.deviceShadow.desired.new_package = newPkg;
+    database.deviceShadow.desired.command = 'NONE';
+    database.deviceShadow.reported.package_id = pkgId;
     database.deviceShadow.reported.otp_active = true;
     database.deviceShadow.version++;
 
@@ -359,13 +648,16 @@ const server = http.createServer(async (req, res) => {
       }
     ];
 
+    // Gửi lệnh tạo OTP mới tới ESP32 qua MQTT Broker
+    publishMqttOtp(randomOtp, pkgId);
+
     database.auditLogs.unshift({
       id: Date.now(),
       timestamp: new Date().toISOString(),
-      level: 'SECURITY',
-      source: 'PERSONAL_LOCKER_SERVER',
-      event: 'OTP_5MIN_ROTATED',
-      details: `Generated new 5-min rolling OTP: ${randomOtp} for Personal Locker`
+      level: 'DELIVERY',
+      source: 'MQTT_BROKER',
+      event: 'NEW_RANDOM_OTP_ACTIVATED',
+      details: `Activated new random OTP: ${randomOtp} for Package ${pkgId} and published to MQTT`
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -382,7 +674,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 9. Delete / Revoke current OTP
+  // 9. Delete / Revoke current OTP via MQTT Broker
   if (pathname === '/api/v1/packages/delete-otp' && method === 'POST') {
     database.personalLocker.currentOtp = '------';
     database.personalLocker.status = 'REVOKED';
@@ -394,7 +686,8 @@ const server = http.createServer(async (req, res) => {
     database.deviceShadow.reported.otp_active = false;
     database.deviceShadow.version++;
 
-    database.activePackages = [];
+    // Gửi lệnh xóa OTP tới ESP32 qua MQTT Broker
+    publishMqttCommand({ command: 'DELETE_OTP' });
 
     database.auditLogs.unshift({
       id: Date.now(),
@@ -402,7 +695,7 @@ const server = http.createServer(async (req, res) => {
       level: 'ADMIN',
       source: 'ADMIN_DASHBOARD',
       event: 'OTP_REVOKED_DELETED',
-      details: `Active 5-minute OTP revoked by Owner`
+      details: `Active OTP and Package ${pkgId} deleted and revoked, published to MQTT`
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -410,32 +703,106 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 10. Create new package / OTP manually
+  // 10. Create new package / OTP manually & publish via MQTT Broker
   if (pathname === '/api/v1/packages/create' && method === 'POST') {
     const data = await parseJsonBody(req);
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = (data.otp && String(data.otp).trim().length > 0) ? String(data.otp).trim() : Math.floor(100000 + Math.random() * 900000).toString();
     const pkg = {
       packageId: 'PKG-' + Math.floor(1000 + Math.random() * 9000),
       resident: data.resident || 'Cư dân',
       phone: data.phone || '09xx',
-      otp: data.otp || otp,
+      otp: otp,
       status: 'DELIVERING',
       createdAt: Date.now()
     };
     database.activePackages.unshift(pkg);
     database.deviceShadow.desired.new_package = pkg;
+    database.deviceShadow.desired.command = 'NONE';
+    database.deviceShadow.reported.package_id = pkg.packageId;
+    database.deviceShadow.reported.otp_active = true;
+
+    // Gửi lệnh tạo OTP mới tới ESP32 qua MQTT Broker
+    publishMqttOtp(pkg.otp, pkg.packageId);
 
     database.auditLogs.unshift({
       id: Date.now(),
       timestamp: new Date().toISOString(),
       level: 'DELIVERY',
-      source: 'SHIPPER_APP',
+      source: 'MQTT_BROKER',
       event: 'PACKAGE_DISPATCHED',
-      details: `New package ${pkg.packageId} created with OTP ${pkg.otp} for ${pkg.resident}`
+      details: `New package ${pkg.packageId} created with OTP ${pkg.otp} for ${pkg.resident} and published to MQTT`
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, package: pkg }));
+    return;
+  }
+
+  // 11. Kích hoạt mã OTP cụ thể tới ESP32 qua MQTT Broker
+  if (pathname === '/api/v1/packages/activate' && method === 'POST') {
+    const data = await parseJsonBody(req);
+    const pkg = database.activePackages.find(p => p.packageId === data.packageId || p.otp === data.otp);
+    if (!pkg) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Package not found' }));
+      return;
+    }
+
+    database.deviceShadow.reported.package_id = pkg.packageId;
+    database.deviceShadow.reported.otp_active = true;
+    database.deviceShadow.version++;
+
+    // Gửi lệnh qua MQTT Broker tới ESP32
+    publishMqttOtp(pkg.otp, pkg.packageId);
+
+    database.auditLogs.unshift({
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+      level: 'DELIVERY',
+      source: 'MQTT_BROKER',
+      event: 'OTP_ACTIVATED_TO_ESP',
+      details: `Activated OTP ${pkg.otp} for Package ${pkg.packageId} to ESP via MQTT`
+    });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, package: pkg }));
+    return;
+  }
+
+  // 12. Kiểm tra mã OTP qua MQTT Broker / CSDL
+  if (pathname === '/api/v1/packages/verify-otp' && method === 'POST') {
+    const data = await parseJsonBody(req);
+    const testOtp = (data.otp || '').toString().trim();
+    const matchedPkg = database.activePackages.find(p => p.otp === testOtp);
+
+    if (matchedPkg) {
+      // Gửi lệnh CHECK_OTP qua MQTT Broker tới ESP32
+      publishMqttCommand({ command: 'CHECK_OTP', otp: testOtp, package: matchedPkg.packageId });
+
+      database.auditLogs.unshift({
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'ACCESS',
+        source: 'MQTT_BROKER',
+        event: 'OTP_VERIFY_SUCCESS',
+        details: `OTP ${testOtp} verified valid for Package ${matchedPkg.packageId}`
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ valid: true, package: matchedPkg }));
+    } else {
+      database.auditLogs.unshift({
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'ANOMALY',
+        source: 'MQTT_BROKER',
+        event: 'OTP_VERIFY_FAILED',
+        details: `Failed OTP verification attempt for code: ${testOtp}`
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ valid: false, error: 'Invalid or expired OTP' }));
+    }
     return;
   }
 
@@ -475,5 +842,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`- Device Shadow:       GET/POST http://localhost:${PORT}/api/v1/shadow`);
   console.log(`- Direct DB Audit Log: POST http://localhost:${PORT}/api/v1/audit/logs`);
   console.log(`- MAC Auth Endpoint:   POST http://localhost:${PORT}/api/v1/auth/verify-mac`);
+  console.log(`- MQTT Broker:         Connecting to ${MQTT_CONFIG.host}:${MQTT_CONFIG.port}`);
   console.log(`=======================================================`);
+
+  // Kết nối và đăng ký lắng nghe MQTT Broker
+  mqttClient.connect();
+  mqttClient.subscribe(MQTT_TOPIC_EVENTS);
+  mqttClient.subscribe(MQTT_TOPIC_STATUS);
 });
