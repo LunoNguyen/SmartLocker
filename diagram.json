@@ -25,13 +25,6 @@
       "attrs": {}
     },
     {
-      "type": "wokwi-uart-terminal",
-      "id": "qrreader1",
-      "top": 140,
-      "left": -260,
-      "attrs": {}
-    },
-    {
       "type": "wokwi-relay-module",
       "id": "relay1",
       "top": 460,
@@ -179,30 +172,6 @@
       "keypad1:C4",
       "esp:D32",
       "purple",
-      []
-    ],
-    [
-      "qrreader1:TXD",
-      "esp:D17",
-      "green",
-      []
-    ],
-    [
-      "qrreader1:RXD",
-      "esp:D16",
-      "yellow",
-      []
-    ],
-    [
-      "qrreader1:VCC",
-      "esp:5V",
-      "red",
-      []
-    ],
-    [
-      "qrreader1:GND",
-      "esp:GND.1",
-      "black",
       []
     ],
     [
