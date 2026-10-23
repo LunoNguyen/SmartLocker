@@ -1,0 +1,17 @@
+{
+  "name": "smartlocker-server",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Smart Locker - quan ly va xac thuc OTP qua MQTT",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mqtt": "^5.10.1"
+  }
+}
