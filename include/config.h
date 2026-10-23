@@ -2,47 +2,39 @@
 #define CONFIG_H
 
 /* =========================================================================
- * BẢNG CẤU HÌNH HỆ THỐNG SMART LOCKER (DỄ DÀNG THAY ĐỔI)
+ * CẤU HÌNH SMART LOCKER - NHÓM 6
+ * ESP32 KHÔNG giữ mã OTP. Mã do web quản lý; ESP32 gửi mã người dùng nhập
+ * lên MQTT (topic verify) và chờ web trả kết quả (topic verify/result).
  * ========================================================================= */
 
-// --- CẤU HÌNH KẾT NỐI WIFI ---
+// --- WiFi (Wokwi) ---
 #define WIFI_SSID           "Wokwi-GUEST"
 #define WIFI_PASS           ""
 
-// --- CẤU HÌNH MQTT BROKER (MOSQUITTO LOCAL) ---
-// Chọn 1 trong 2 môi trường bên dưới:
-// #define RUN_ON_DOCKER_WINDOWS     // BẬT dòng này nếu chạy Docker trên Windows (Không cần máy ảo)
-#define RUN_ON_VMWARE_UBUNTU   // BẬT dòng này nếu chạy Mosquitto trên máy ảo Ubuntu
+// --- MQTT broker: Mosquitto trên VMware Ubuntu ---
+// Lấy IP bằng `ip a` trên Ubuntu (card ens33). Wokwi đi ra mạng qua máy Windows,
+// nên Windows ping được IP này là ESP32 kết nối được.
+#define MQTT_BROKER_HOST    "192.168.209.128"
+#define MQTT_BROKER_PORT    1883
+#define MQTT_USERNAME       "gateway_admin"
+#define MQTT_PASSWORD       "123456"
+#define MQTT_CLIENT_ID      "SmartLocker_01"
 
-#if defined(RUN_ON_DOCKER_WINDOWS)
-  #define MQTT_BROKER_HOST    "host.wokwi.internal" // Tự động trỏ về Windows/Docker, không lo đổi IP
-#elif defined(RUN_ON_VMWARE_UBUNTU)
-  #define MQTT_BROKER_HOST    "192.168.209.128"     // IP máy ảo Ubuntu của bạn bạn
-#else
-  #define MQTT_BROKER_HOST    "host.wokwi.internal"
-#endif
+// --- Topic (phải khớp server/src/mqttBridge.js) ---
+#define TOPIC_PREFIX        "smartlocker/locker1/"
+#define TOPIC_VERIFY        TOPIC_PREFIX "verify"         // ESP32 -> web: {"req","code"}
+#define TOPIC_RESULT        TOPIC_PREFIX "verify/result"  // web -> ESP32: {"req","ok",...}
+#define TOPIC_COMMAND       TOPIC_PREFIX "command"        // web -> ESP32: {"cmd":"UNLOCK"}
+#define TOPIC_STATUS        TOPIC_PREFIX "status"         // ESP32 -> web (retained + Last Will)
+#define TOPIC_EVENTS        TOPIC_PREFIX "events"         // ESP32 -> web
 
-#define MQTT_BROKER_PORT    1883             // Cổng MQTT tiêu chuẩn của Mosquitto
-#define MQTT_USERNAME       "gateway_admin"  // Tài khoản Mosquitto (mosquitto_passwd)
-#define MQTT_PASSWORD       "123456"         // Mật khẩu Mosquitto
-#define MQTT_CLIENT_ID      "SmartLocker_01" // Client ID định danh thiết bị
+// --- Thời gian (ms) ---
+#define VERIFY_TIMEOUT_MS   5000   // chờ web trả kết quả
+#define UNLOCK_DURATION_MS  6000   // tự khóa nếu không mở cửa
+#define MESSAGE_SHOW_MS     3000   // thời gian hiện thông báo lỗi trên OLED
+#define MQTT_RETRY_MS       5000   // khoảng cách giữa các lần thử kết nối lại
 
-// Các Topics MQTT chuẩn hóa của Smart Locker
-#define MQTT_TOPIC_COMMAND    "smartlocker/locker1/command"   // Nhận lệnh từ Broker (UNLOCK, NEW_OTP, ISOLATE)
-#define MQTT_TOPIC_STATUS     "smartlocker/locker1/status"    // Báo cáo trạng thái Khóa, Cửa, Ngăn
-#define MQTT_TOPIC_TELEMETRY  "smartlocker/locker1/telemetry" // Báo cáo thông số cảm biến theo chu kỳ lũy tuyến
-#define MQTT_TOPIC_EVENTS     "smartlocker/locker1/events"    // Báo cáo sự kiện nhận hàng, dị thường cạy cửa
-
-// --- CẤU HÌNH MÁY CHỦ HTTP REST / DATABASE BACKEND ---
-// Server Node.js (server/server.js) chạy trên Windows; trong Wokwi "host.wokwi.internal" = localhost của Windows
-#define SERVER_BASE_URL     "http://host.wokwi.internal:5000"
-#define DEVICE_ID           "SMART_LOCKER_01"
-
-// --- THỜI GIAN MỞ KHÓA TỰ ĐỘNG ---
-#define UNLOCK_DURATION_MS        6000   // Tự động đóng chốt sau 6 giây nếu không mở cửa
-
-// --- CẤU HÌNH TỦ CÁ NHÂN (1 NGƯỜI DÙNG) & BỎ LŨY TUYẾN BĂNG THÔNG ---
-#define OTP_ROTATION_INTERVAL_MS  300000 // Tự động đổi mã OTP ngẫu nhiên mỗi 5 phút (300s = 300,000ms)
-#define TELEMETRY_INTERVAL_MS     5000   // Chu kỳ gửi dữ liệu định kỳ cố định 5 giây (Đã bỏ lũy tuyến)
+// --- Mã OTP ---
+#define OTP_LENGTH          6
 
 #endif // CONFIG_H
