@@ -1,333 +1,68 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Smart Locker IoT System - Nhóm 6</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Locker – Quản lý OTP</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="app-layout">
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <circle cx="12" cy="10" r="3"/>
-            <path d="M12 13v4"/>
-          </svg>
-        </div>
-        <div>
-          <h2 class="brand-title">Smart Locker</h2>
-          <span class="brand-sub">Chủ đề 67 - Nhóm 6</span>
-        </div>
+  <div id="broker-banner" class="banner" hidden>
+    Mất kết nối MQTT broker – tủ không thể xác thực mã. Server đang tự kết nối lại…
+  </div>
+
+  <header class="top">
+    <div>
+      <h1>Smart Locker</h1>
+      <p class="sub">Nhóm 6 · Quản lý &amp; xác thực OTP qua MQTT</p>
+    </div>
+    <div class="conn">
+      <span class="dot" id="broker-dot"></span>
+      <span id="broker-text">Đang kết nối…</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card otp-card">
+      <h2>Mã OTP hiện tại</h2>
+      <div id="otp-code" class="otp-code">------</div>
+      <div class="progress"><div id="otp-bar" class="bar"></div></div>
+      <p id="otp-expire" class="muted">&nbsp;</p>
+      <div class="actions">
+        <button id="btn-rotate" class="btn primary">Tạo mã mới</button>
+        <button id="btn-copy" class="btn">Copy</button>
+        <button id="btn-revoke" class="btn danger-outline">Hủy mã</button>
       </div>
+      <p id="otp-last" class="last">&nbsp;</p>
+    </section>
 
-      <nav class="nav-menu">
-        <button class="nav-item active" data-tab="overview">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-          Tổng quan thiết bị
-        </button>
-        <button class="nav-item" data-tab="security">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          Kiểm toán An ninh & Dị thường
-        </button>
-        <button class="nav-item" data-tab="packages">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          Mã OTP Tủ Cá Nhân (5 Phút)
-        </button>
-      </nav>
+    <section class="card">
+      <h2>Trạng thái tủ</h2>
+      <dl class="stats">
+        <div><dt>Kết nối</dt><dd id="st-online">–</dd></div>
+        <div><dt>Khóa</dt><dd id="st-lock">–</dd></div>
+        <div><dt>Cửa</dt><dd id="st-door">–</dd></div>
+      </dl>
+      <button id="btn-unlock" class="btn primary wide">Mở khóa từ xa</button>
+    </section>
 
-      <div class="sidebar-status">
-        <div class="status-indicator online" id="serverStatusDot"></div>
-        <div>
-          <div class="status-label">Máy chủ Quản lý Smart Locker</div>
-          <div class="status-val" id="serverStatusText">Đang kết nối: Port 5000</div>
-        </div>
-      </div>
-    </aside>
+    <section class="card">
+      <h2>Bảo mật bàn phím</h2>
+      <dl class="stats">
+        <div><dt>Số lần sai liên tiếp</dt><dd id="sec-fails">0</dd></div>
+        <div><dt>Trạng thái</dt><dd id="sec-lock">Bình thường</dd></div>
+      </dl>
+      <p class="muted small">Sai 3 lần → khóa 30 giây · Sai 5 lần → khóa 5 phút và đổi mã</p>
+      <button id="btn-clear" class="btn wide">Gỡ khóa bàn phím</button>
+    </section>
 
-    <!-- Main Content Area -->
-    <main class="main-content">
-      <!-- Header Bar -->
-      <header class="topbar">
-        <div class="topbar-left">
-          <h1 id="pageTitle">Trung tâm Quản lý Tủ Khóa Thông Minh</h1>
-          <span class="badge" id="hwMacBadge">MAC: 24:6F:28:XX:XX:XX</span>
-          <span class="badge badge-success" id="authBadge">Xác thực: HỢP LỆ</span>
-        </div>
-        <div class="topbar-right">
-          <button class="btn btn-secondary" onclick="triggerGenerateRandomOtp()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-            Tạo OTP ngẫu nhiên
-          </button>
-          <button class="btn btn-secondary" style="border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;" onclick="triggerDeleteOtp()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Xóa / Hủy OTP
-          </button>
-          <button class="btn btn-danger" id="btnEmergencyQuarantine" onclick="toggleQuarantine()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span id="quarantineBtnText">Cách ly Khẩn cấp</span>
-          </button>
-          <button class="btn btn-primary" onclick="triggerRemoteUnlock()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-            Mở khóa từ xa
-          </button>
-        </div>
-      </header>
+    <section class="card log-card">
+      <h2>Nhật ký</h2>
+      <ul id="log" class="log"></ul>
+    </section>
+  </main>
 
-      <!-- Alert Banner for Anomaly / Quarantine -->
-      <div id="quarantineBanner" class="alert-banner alert-critical hidden">
-        <div class="alert-icon">⚠️</div>
-        <div>
-          <strong>CẢNH BÁO: HỆ THỐNG ĐANG BỊ CÁCH LY (QUARANTINED)!</strong>
-          <p>Thiết bị đã ngắt cơ cấu chấp hành và tạm khóa xác thực cục bộ do phát hiện nguy cơ an ninh.</p>
-        </div>
-        <button class="btn btn-sm btn-outline" onclick="restoreFromQuarantine()">Gỡ cách ly</button>
-      </div>
-
-      <!-- Tab Content: Overview -->
-      <section id="tab-overview" class="tab-pane active">
-        <!-- Metric Grid -->
-        <div class="stats-grid">
-          <div class="card stat-card">
-            <div class="stat-header">
-              <span class="stat-title">Khóa Điện Từ (Relay 23)</span>
-              <div class="stat-icon-wrapper" id="lockIconBox">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              </div>
-            </div>
-            <div class="stat-value" id="lockStateText">ĐANG KHÓA</div>
-            <span class="stat-sub">Cơ cấu chấp hành 12V</span>
-          </div>
-
-          <div class="card stat-card">
-            <div class="stat-header">
-              <span class="stat-title">Cảm biến Từ Cửa (Pin 18)</span>
-              <div class="stat-icon-wrapper" id="doorIconBox">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M15 11v2"/></svg>
-              </div>
-            </div>
-            <div class="stat-value" id="doorStateText">ĐÃ ĐÓNG</div>
-            <span class="stat-sub">Trạng thái vật lý thực tế</span>
-          </div>
-
-          <div class="card stat-card">
-            <div class="stat-header">
-              <span class="stat-title">Chu kỳ Đồng bộ (Cố định)</span>
-              <div class="stat-icon-wrapper">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              </div>
-            </div>
-            <div class="stat-value" id="syncRateText">5,000 ms</div>
-            <span class="stat-sub" id="syncStatusSub">Định kỳ cố định (Đã bỏ lũy tuyến)</span>
-          </div>
-
-          <div class="card stat-card">
-            <div class="stat-header">
-              <span class="stat-title">Xác thực Phần cứng (MAC)</span>
-              <div class="stat-icon-wrapper">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              </div>
-            </div>
-            <div class="stat-value text-success" id="macSecText">KHÔNG BỊ THAY CHIP</div>
-            <span class="stat-sub">Bảo mật định danh eFuse</span>
-          </div>
-        </div>
-
-        <!-- Locker Visualizer & Circuit Breakers -->
-        <div class="split-layout">
-          <!-- Locker Physical Simulation Card -->
-          <div class="card locker-preview-card">
-            <h3 class="card-title">Mô phỏng Trực quan Ngăn tủ Smart Locker</h3>
-            <div class="locker-box">
-              <div class="locker-door" id="visualDoor">
-                <div class="locker-handle"></div>
-                <div class="locker-led" id="visualLockLed"></div>
-                <div class="locker-screen-mini">
-                  <span id="visualOledMsg">SẴN SÀNG</span>
-                </div>
-              </div>
-              <div class="locker-inside">
-                <div class="locker-parcel" id="visualParcel">
-                  <div class="parcel-label" id="visualParcelId">PKG-7821</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="locker-details-row">
-              <div><strong>Trạng thái ngăn:</strong> <span id="lockerStatusBadge" class="badge badge-info">CÓ HÀNG</span></div>
-              <div><strong>Gói hàng:</strong> <span id="currentPackageId">PKG-7821</span></div>
-              <div><strong>Thời gian mở cửa:</strong> <span id="doorCounterText">0 lần</span></div>
-            </div>
-          </div>
-
-          <!-- Circuit Breakers / Khoanh vùng cô lập nguồn tấn công -->
-          <div class="card breaker-card">
-            <h3 class="card-title">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              Khoanh vùng Ngắt kết nối / Circuit Breakers
-            </h3>
-            <p class="card-desc">Nếu nghi ngờ một nguồn bị tấn công (QR độc hại, keypad kẹt, đám mây bị chiếm), quản trị viên có thể lập tức cô lập nguồn đó độc lập:</p>
-
-            <div class="breaker-list">
-              <div class="breaker-item">
-                <div class="breaker-info">
-                  <span class="breaker-name">Đầu đọc QR Scanner (UART2 - Pin 16/17)</span>
-                  <span class="breaker-status text-success" id="statusBreakerQr">Hoạt động bình thường</span>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="switchBreakerQr" checked onchange="toggleSubsystem('qr_reader', this.checked)">
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="breaker-item">
-                <div class="breaker-info">
-                  <span class="breaker-name">Bàn phím ma trận 4x4 (Keypad Matrix)</span>
-                  <span class="breaker-status text-success" id="statusBreakerKeypad">Hoạt động bình thường</span>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="switchBreakerKeypad" checked onchange="toggleSubsystem('keypad', this.checked)">
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="breaker-item">
-                <div class="breaker-info">
-                  <span class="breaker-name">Đồng bộ Máy chủ Đám mây (Cloud Sync API)</span>
-                  <span class="breaker-status text-success" id="statusBreakerCloud">Đang kết nối</span>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="switchBreakerCloud" checked onchange="toggleSubsystem('cloud_sync', this.checked)">
-                  <span class="slider"></span>
-                </label>
-              </div>
-
-              <div class="breaker-item">
-                <div class="breaker-info">
-                  <span class="breaker-name">Nguồn Khóa Điện Từ (Relay Actuator Rail)</span>
-                  <span class="breaker-status text-success" id="statusBreakerActuator">Sẵn sàng cấp điện</span>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" id="switchBreakerActuator" checked onchange="toggleSubsystem('lock_actuator', this.checked)">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Tab Content: Security & Anomaly Audit -->
-      <section id="tab-security" class="tab-pane">
-        <div class="card">
-          <div class="card-header-flex">
-            <div>
-              <h3 class="card-title">Kiểm toán An ninh Liên tục & Phát hiện Dị thường (Edge + Cloud)</h3>
-              <p class="card-desc">Dữ liệu kiểm toán gửi trực tiếp vào Cơ sở Dữ liệu (Bypass MQTT Broker để tối ưu chi phí hạ tầng)</p>
-            </div>
-            <button class="btn btn-outline" onclick="fetchLogs()">Làm mới Nhật ký</button>
-          </div>
-
-          <div class="anomaly-summary-row">
-            <div class="anomaly-badge-card" id="anomalyBruteForceBox">
-              <span class="count" id="countBruteForce">0</span>
-              <span class="lbl">Dị thường Dò mã (Brute Force)</span>
-            </div>
-            <div class="anomaly-badge-card" id="anomalyTamperBox">
-              <span class="count" id="countTamper">0</span>
-              <span class="lbl">Cạy cửa Trái phép (Tamper)</span>
-            </div>
-            <div class="anomaly-badge-card" id="anomalyDoorAjarBox">
-              <span class="count" id="countDoorAjar">0</span>
-              <span class="lbl">Cửa Quên Đóng (>60s)</span>
-            </div>
-            <div class="anomaly-badge-card" id="anomalyChipSwapBox">
-              <span class="count" id="countChipSwap">0</span>
-              <span class="lbl">Nghi vấn Thay Chip (MAC)</span>
-            </div>
-          </div>
-
-          <div class="table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Thời gian</th>
-                  <th>Cấp độ</th>
-                  <th>Nguồn</th>
-                  <th>Sự kiện</th>
-                  <th>Chi tiết</th>
-                </tr>
-              </thead>
-              <tbody id="auditLogsBody">
-                <tr><td colspan="5" class="text-center">Đang tải nhật ký kiểm toán...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- Tab Content: Personal Locker & 5-Min Rotating OTP -->
-      <section id="tab-packages" class="tab-pane">
-        <div class="card">
-          <div class="card-header-flex">
-            <div>
-              <h3 class="card-title">Quản lý Mã OTP Tủ Cá Nhân (Xoay vòng 5 Phút)</h3>
-              <p class="card-desc">Tủ khóa thông minh dành cho 1 người dùng. Mã OTP tự động đổi ngẫu nhiên mỗi 5 phút một lần để bảo mật tuyệt đối.</p>
-            </div>
-            <div style="display:flex; gap:10px;">
-              <button class="btn btn-secondary" onclick="triggerGenerateRandomOtp()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                Đổi mã OTP mới ngay
-              </button>
-              <button class="btn btn-primary" onclick="triggerRemoteUnlock()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-                Mở khóa từ xa
-              </button>
-            </div>
-          </div>
-
-          <div class="personal-otp-hero" style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:12px; padding:30px; margin-top:20px; text-align:center;">
-            <div style="font-size:0.9rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Mã OTP Mở Tủ Hiện Tại (6 Chữ Số)</div>
-            <div id="personalOtpValue" style="font-size:3.5rem; font-weight:800; letter-spacing:12px; color:var(--color-primary, #3b82f6); font-family:monospace; margin:15px 0;">123456</div>
-            
-            <div style="display:flex; justify-content:center; align-items:center; gap:12px; margin-bottom:20px;">
-              <span class="badge badge-success" id="personalOtpStatusBadge">ĐANG HOẠT ĐỘNG</span>
-              <span style="font-size:0.95rem; color:var(--text-muted);">Tự động đổi sau: <strong id="personalOtpCountdown" style="color:#ef4444; font-size:1.1rem;">05:00</strong></span>
-            </div>
-
-            <div style="max-width:400px; margin:0 auto; background:rgba(255,255,255,0.1); height:8px; border-radius:4px; overflow:hidden;">
-              <div id="otpCountdownBar" style="width:100%; height:100%; background:linear-gradient(90deg, #10b981, #3b82f6); transition:width 1s linear;"></div>
-            </div>
-
-            <div style="margin-top:25px; display:flex; justify-content:center; gap:12px;">
-              <button class="btn btn-outline" onclick="copyPersonalOtp()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                Sao chép mã OTP
-              </button>
-              <button class="btn btn-danger" onclick="triggerDeleteOtp()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                Hủy mã ngay
-              </button>
-            </div>
-          </div>
-
-          <div style="margin-top:25px; padding:15px; border-radius:8px; background:rgba(59, 130, 246, 0.08); border-left:4px solid #3b82f6; font-size:0.9rem; line-height:1.6;">
-            <strong>ℹ️ Hướng dẫn sử dụng Tủ Cá Nhân:</strong>
-            <ul style="margin:6px 0 0 20px; padding:0;">
-              <li>Mã OTP này dùng để mở tủ trên bàn phím Keypad 4x4 (Bấm số trực tiếp rồi nhấn phím <strong>[#]</strong>).</li>
-              <li>Mỗi mã có giá trị sử dụng <strong>1 lần duy nhất</strong>. Sau khi mở tủ hoặc sau <strong>5 phút</strong>, hệ thống tự động đổi mã mới.</li>
-              <li>Bạn có thể bấm phím <strong>[A]</strong> trên Keypad hoặc bấm nút <strong>"Đổi mã OTP mới ngay"</strong> ở trên để đổi mã bất cứ lúc nào.</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
+  <div id="toast" class="toast" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>
