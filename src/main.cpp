@@ -25,7 +25,9 @@ static char pendingReq[9] = "";
 
 static Screen messageScreen = SCR_IDLE;  // màn đang hiện trong ST_MESSAGE
 static int messageNumber = 0;
-static unsigned long lockoutUntil = 0;
+static bool lockoutActive = false;          // dùng cờ + mốc bắt đầu để không lỗi khi millis() tràn số
+static unsigned long lockoutStart = 0;
+static unsigned long lockoutMs = 0;
 
 static bool doorOpen = false;
 static bool doorOpenedWhileUnlocked = false;
@@ -43,7 +45,7 @@ static void clearInput() {
 
 // Về màn chờ, nhưng vẫn giữ đếm ngược nếu bàn phím đang bị khóa
 static void backToIdle() {
-  enter((long)(millis() - lockoutUntil) < 0 ? ST_LOCKOUT : ST_IDLE);
+  enter(lockoutActive ? ST_LOCKOUT : ST_IDLE);
 }
 
 static void showMessage(Screen scr, int number) {
@@ -82,7 +84,9 @@ static void onVerifyResult(const VerifyResult& r) {
   if (r.ok) {
     unlock("OTP");
   } else if (strcmp(r.reason, "LOCKED_OUT") == 0) {
-    lockoutUntil = millis() + (unsigned long)max(r.retryIn, 1) * 1000UL;
+    lockoutActive = true;
+    lockoutStart = millis();
+    lockoutMs = (unsigned long)max(r.retryIn, 1) * 1000UL;
     hwPlay(SND_ALARM);
     enter(ST_LOCKOUT);
   } else if (strcmp(r.reason, "NO_OTP") == 0) {
@@ -183,7 +187,10 @@ static void handleTimers() {
       if (now - stateSince >= MESSAGE_SHOW_MS) backToIdle();
       break;
     case ST_LOCKOUT:
-      if ((long)(now - lockoutUntil) >= 0) enter(ST_IDLE);
+      if (now - lockoutStart >= lockoutMs) {
+        lockoutActive = false;
+        enter(ST_IDLE);
+      }
       break;
     default:
       break;
@@ -212,7 +219,7 @@ static void render() {
       uiDraw(messageScreen, messageNumber, online);
       break;
     case ST_LOCKOUT:
-      uiDraw(SCR_LOCKOUT, (int)((lockoutUntil - now + 999) / 1000), online);
+      uiDraw(SCR_LOCKOUT, (int)((lockoutMs - (now - lockoutStart) + 999) / 1000), online);
       break;
   }
 }

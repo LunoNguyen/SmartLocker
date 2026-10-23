@@ -18,6 +18,12 @@ static uint8_t tuneLen = 0;
 static uint8_t tuneIdx = 0;
 static unsigned long noteEndsAt = 0;
 
+// Cảm biến cửa: chỉ nhận trạng thái mới khi ổn định đủ lâu (chống dội tiếp điểm)
+static const unsigned long DOOR_DEBOUNCE_MS = 50;
+static bool doorStable = false;
+static bool doorRaw = false;
+static unsigned long doorRawSince = 0;
+
 static bool ledFast = false;
 static bool ledOn = false;
 static unsigned long ledToggledAt = 0;
@@ -28,6 +34,8 @@ void hwBegin() {
   pinMode(DOOR_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
+  doorStable = doorRaw = digitalRead(DOOR_PIN) == HIGH;
+  doorRawSince = millis();
 }
 
 void hwSetRelay(bool open) {
@@ -35,7 +43,17 @@ void hwSetRelay(bool open) {
 }
 
 bool hwDoorOpen() {
-  return digitalRead(DOOR_PIN) == HIGH;
+  return doorStable;
+}
+
+static void updateDoor(unsigned long now) {
+  bool raw = digitalRead(DOOR_PIN) == HIGH;
+  if (raw != doorRaw) {
+    doorRaw = raw;
+    doorRawSince = now;
+  } else if (raw != doorStable && now - doorRawSince >= DOOR_DEBOUNCE_MS) {
+    doorStable = raw;
+  }
 }
 
 void hwPlay(Sound s) {
@@ -69,6 +87,7 @@ static void updateTune(unsigned long now) {
 void hwUpdate() {
   unsigned long now = millis();
   updateTune(now);
+  updateDoor(now);
 
   unsigned long period = ledFast ? 150 : 800;
   if (now - ledToggledAt >= period) {
