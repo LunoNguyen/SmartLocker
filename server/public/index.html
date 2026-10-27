@@ -11,6 +11,10 @@
     Mất kết nối MQTT broker – tủ không thể xác thực mã. Server đang tự kết nối lại…
   </div>
 
+  <div id="db-banner" class="banner warn" hidden>
+    Mất kết nối MongoDB – nhật ký mở khóa tạm thời không được lưu. Mở khóa bằng OTP vẫn hoạt động.
+  </div>
+
   <header class="top">
     <div>
       <h1>Smart Locker</h1>
@@ -22,7 +26,13 @@
     </div>
   </header>
 
-  <main class="grid">
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="control" role="tab">Điều khiển</button>
+    <button class="tab" data-tab="logs" role="tab">Nhật ký mở khóa</button>
+    <button class="tab" data-tab="anomalies" role="tab">Bất thường <span id="anomaly-badge" class="badge" hidden>0</span></button>
+  </nav>
+
+  <main id="tab-control" class="grid tab-panel">
     <section class="card otp-card">
       <h2>Mã OTP hiện tại</h2>
       <div id="otp-code" class="otp-code">------</div>
@@ -59,6 +69,70 @@
     <section class="card log-card">
       <h2>Nhật ký</h2>
       <ul id="log" class="log"></ul>
+    </section>
+  </main>
+
+  <main id="tab-logs" class="page tab-panel" hidden>
+    <section class="card">
+      <form id="log-filter" class="filters">
+        <label>Từ ngày <input type="date" name="from"></label>
+        <label>Đến ngày <input type="date" name="to"></label>
+        <label>Cách mở
+          <select name="method">
+            <option value="">Tất cả</option>
+            <option value="OTP">Nhập OTP</option>
+            <option value="REMOTE">Mở từ xa</option>
+          </select>
+        </label>
+        <button class="btn primary" type="submit">Lọc</button>
+        <button class="btn" type="reset">Xóa lọc</button>
+        <a id="csv-link" class="btn" href="/api/access-logs.csv" download>Xuất CSV</a>
+      </form>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Thời điểm mở khóa</th>
+              <th>Cách mở</th>
+              <th class="num">Sai trước đó</th>
+              <th>Mở cửa lúc</th>
+              <th>Đóng cửa lúc</th>
+              <th class="num">Thời lượng mở cửa</th>
+              <th>Khóa lại</th>
+              <th>Bất thường</th>
+            </tr>
+          </thead>
+          <tbody id="log-rows"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="log-summary" class="muted"></span>
+        <span>
+          <button id="log-prev" class="btn">‹ Trước</button>
+          <button id="log-next" class="btn">Sau ›</button>
+        </span>
+      </div>
+    </section>
+  </main>
+
+  <main id="tab-anomalies" class="page tab-panel" hidden>
+    <section class="card">
+      <div class="filters">
+        <label>Hiển thị
+          <select id="anomaly-status">
+            <option value="open">Chưa xử lý</option>
+            <option value="all">Tất cả</option>
+          </select>
+        </label>
+      </div>
+      <ul id="anomaly-list" class="anomaly-list"></ul>
+      <div class="pager">
+        <span id="anomaly-summary" class="muted"></span>
+        <span>
+          <button id="anomaly-prev" class="btn">‹ Trước</button>
+          <button id="anomaly-next" class="btn">Sau ›</button>
+        </span>
+      </div>
     </section>
   </main>
 
