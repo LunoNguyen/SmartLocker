@@ -161,3 +161,48 @@ test('event log giu toi da limit dong, moi nhat truoc, goi onChange', () => {
   assert.equal(typeof log.list()[0].ts, 'number');
   assert.equal(n, 3);
 });
+
+function spyTracker() {
+  const calls = [];
+  return {
+    calls,
+    handleVerifyResult: (r) => calls.push(['verify', r]),
+    handleEvent: (e, s) => calls.push(['event', e, s]),
+    handleStatus: (o) => calls.push(['status', o])
+  };
+}
+
+test('tracker nhan ket qua verify (ke ca co noi bo), payload gui ESP32 khong co lockStarted', () => {
+  const client = fakeClient();
+  const tracker = spyTracker();
+  const r = { ok: false, reason: 'LOCKED_OUT', retry_in: 30, lockStarted: true };
+  createMqttBridge({ client, otp: fakeOtp(r), log: createEventLog(), prefix: P, tracker });
+  send(client, 'verify', { req: 'r', code: '000000' });
+  assert.deepEqual(tracker.calls, [['verify', r]]);
+  assert.deepEqual(JSON.parse(client.sent[0].payload), { req: 'r', ok: false, reason: 'LOCKED_OUT', retry_in: 30 });
+});
+
+test('tracker khong nhan verify INVALID / req trung', () => {
+  const client = fakeClient();
+  const tracker = spyTracker();
+  createMqttBridge({ client, otp: fakeOtp({ ok: false, reason: 'INVALID' }), log: createEventLog(), prefix: P, tracker });
+  send(client, 'verify', { req: 'r', code: 1 });
+  assert.equal(tracker.calls.length, 0);
+});
+
+test('tracker nhan events va status cua tu', () => {
+  const client = fakeClient();
+  const tracker = spyTracker();
+  createMqttBridge({ client, otp: fakeOtp(null), log: createEventLog(), prefix: P, tracker });
+  send(client, 'events', { event: 'UNLOCKED', source: 'OTP' });
+  send(client, 'status', { online: false });
+  assert.deepEqual(tracker.calls, [['event', 'UNLOCKED', 'OTP'], ['status', false]]);
+});
+
+test('server mat broker (close) -> khong bao tracker la tu offline', () => {
+  const client = fakeClient();
+  const tracker = spyTracker();
+  createMqttBridge({ client, otp: fakeOtp(null), log: createEventLog(), prefix: P, tracker });
+  client.emit('close');
+  assert.equal(tracker.calls.length, 0);
+});

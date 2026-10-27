@@ -8,7 +8,9 @@ const VERIFY_LOG = {
   LOCKED_OUT: ['WARN', 'KEYPAD_LOCKED', (r) => `Bàn phím đang bị khóa, còn ${r.retry_in}s`]
 };
 
-function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/' }) {
+const NO_TRACKER = { handleVerifyResult() {}, handleEvent() {}, handleStatus() {} };
+
+function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/', tracker = NO_TRACKER }) {
   const topic = {
     verify: prefix + 'verify',
     result: prefix + 'verify/result',
@@ -38,6 +40,7 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/' })
       return;
     }
 
+    tracker.handleVerifyResult(result);
     const { rotated, critical, lockStarted, ...publicResult } = result;
     client.publish(topic.result, JSON.stringify({ req: data.req, ...publicResult }), { qos: 0, retain: false });
 
@@ -57,6 +60,7 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/' })
     locker.online = data.online === true;
     if (typeof data.lock === 'string') locker.lock = data.lock;
     if (typeof data.door === 'string') locker.door = data.door;
+    tracker.handleStatus(locker.online);
     if (wasOnline !== locker.online) {
       log.add(locker.online ? 'INFO' : 'WARN', locker.online ? 'LOCKER_ONLINE' : 'LOCKER_OFFLINE',
         locker.online ? 'Tủ đã kết nối broker' : 'Tủ mất kết nối broker');
@@ -67,6 +71,7 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/' })
   function handleEvent(data) {
     if (typeof data.event !== 'string') return;
     const source = typeof data.source === 'string' ? data.source : '';
+    tracker.handleEvent(data.event, source);
     if (data.event === 'TAMPER') {
       log.add('CRITICAL', 'TAMPER', 'Cửa bị mở khi đang khóa – nghi cạy cửa!');
     } else {
