@@ -9,7 +9,7 @@ Web có tab xem nhật ký (lọc, phân trang, xuất CSV) và tab bất thư�
 
 ## Quyết định
 
-- Web Node.js (`server/`), không dùng Node-RED cho phần này.
+- Web Node.js (`server/`) là nơi duy nhất xử lý OTP và ghi nhật ký.
 - MongoDB Community cài trên Windows, `MONGODB_URI=mongodb://127.0.0.1:27017/smartlockerlogs`.
 - Lưu vĩnh viễn, không TTL.
 - **Firmware không đổi**: server ghép phiên mở khóa từ các sự kiện ESP32 đã gửi

@@ -29,7 +29,9 @@
       "id": "relay1",
       "top": 460,
       "left": 560,
-      "attrs": {}
+      "attrs": {
+        "transistor": "pnp"
+      }
     },
     {
       "type": "wokwi-resistor",
@@ -182,7 +184,7 @@
     ],
     [
       "relay1:VCC",
-      "esp:5V",
+      "esp:3V3",
       "red",
       []
     ],
@@ -194,7 +196,7 @@
     ],
     [
       "relay1:COM",
-      "esp:VIN",
+      "esp:3V3",
       "red",
       []
     ],
