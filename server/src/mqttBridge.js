@@ -38,7 +38,7 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/' })
       return;
     }
 
-    const { rotated, critical, ...publicResult } = result;
+    const { rotated, critical, lockStarted, ...publicResult } = result;
     client.publish(topic.result, JSON.stringify({ req: data.req, ...publicResult }), { qos: 0, retain: false });
 
     if (result.ok) {

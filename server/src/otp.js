@@ -81,11 +81,11 @@ function createOtpService({
       lockedUntil = now() + HARD_LOCK_MS;
       failCount = 0;
       rotate();
-      return lockedOut({ critical: true });
+      return lockedOut({ critical: true, lockStarted: true });
     }
     if (failCount === FIRST_LOCK_AT) {
       lockedUntil = now() + FIRST_LOCK_MS;
-      return lockedOut();
+      return lockedOut({ lockStarted: true });
     }
     const nextLimit = failCount < FIRST_LOCK_AT ? FIRST_LOCK_AT : HARD_LOCK_AT;
     return { ok: false, reason: 'WRONG', attempts_left: nextLimit - failCount };

@@ -46,7 +46,7 @@ test('sai 1, 2 -> attempts_left 2, 1; sai 3 -> khoa 30s', () => {
   const { s } = setup([111111]);
   assert.deepEqual(s.verify('a', '000000'), { ok: false, reason: 'WRONG', attempts_left: 2 });
   assert.deepEqual(s.verify('b', '000000'), { ok: false, reason: 'WRONG', attempts_left: 1 });
-  assert.deepEqual(s.verify('c', '000000'), { ok: false, reason: 'LOCKED_OUT', retry_in: 30 });
+  assert.deepEqual(s.verify('c', '000000'), { ok: false, reason: 'LOCKED_OUT', retry_in: 30, lockStarted: true });
 });
 
 test('dang khoa -> LOCKED_OUT ke ca khi nhap dung, retry_in lam tron len', () => {
@@ -62,7 +62,7 @@ test('het khoa 30s, sai lan 4 -> attempts_left 1; lan 5 -> khoa 300s, doi ma, cr
   for (const r of ['a', 'b', 'c']) s.verify(r, '000000');
   clock.t += 30_000;
   assert.deepEqual(s.verify('d', '000000'), { ok: false, reason: 'WRONG', attempts_left: 1 });
-  assert.deepEqual(s.verify('e', '000000'), { ok: false, reason: 'LOCKED_OUT', retry_in: 300, critical: true });
+  assert.deepEqual(s.verify('e', '000000'), { ok: false, reason: 'LOCKED_OUT', retry_in: 300, critical: true, lockStarted: true });
   assert.equal(s.getState().code, '333333');
   assert.equal(s.getState().failCount, 0);
   assert.equal(s.getState().lockedUntil, clock.t + 300_000);
@@ -147,4 +147,10 @@ test('mac dinh dung crypto.randomInt va ttl 10 phut', () => {
   const st = s.getState();
   assert.match(st.code, /^\d{6}$/);
   assert.equal(st.expiresAt - st.createdAt, 600000);
+});
+
+test('dang khoa san -> LOCKED_OUT khong co lockStarted', () => {
+  const { s } = setup([111111]);
+  for (const r of ['a', 'b', 'c']) s.verify(r, '000000');
+  assert.equal(s.verify('d', '000000').lockStarted, undefined);
 });
