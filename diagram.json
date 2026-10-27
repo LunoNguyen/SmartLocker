@@ -13,8 +13,8 @@
     {
       "type": "board-ssd1306",
       "id": "oled1",
-      "top": -80,
-      "left": 280,
+      "top": 300.74,
+      "left": 537.83,
       "attrs": {}
     },
     {
