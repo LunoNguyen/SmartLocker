@@ -10,7 +10,11 @@ const VERIFY_LOG = {
 
 const NO_TRACKER = { handleVerifyResult() {}, handleEvent() {}, handleStatus() {} };
 
-function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/', tracker = NO_TRACKER }) {
+const MAX_EVENT_AGE_MS = 24 * 3600_000;
+
+function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/', tracker = NO_TRACKER, now = Date.now }) {
+  let boot = null;
+  let lastSeq = null;
   const topic = {
     verify: prefix + 'verify',
     result: prefix + 'verify/result',
@@ -60,6 +64,10 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/', t
     locker.online = data.online === true;
     if (typeof data.lock === 'string') locker.lock = data.lock;
     if (typeof data.door === 'string') locker.door = data.door;
+    if (typeof data.boot === 'string' && data.boot !== boot) {
+      boot = data.boot; // tủ vừa khởi động lại: seq đếm lại từ 1
+      lastSeq = null;
+    }
     tracker.handleStatus(locker.online);
     if (wasOnline !== locker.online) {
       log.add(locker.online ? 'INFO' : 'WARN', locker.online ? 'LOCKER_ONLINE' : 'LOCKER_OFFLINE',
@@ -68,10 +76,25 @@ function createMqttBridge({ client, otp, log, prefix = 'smartlocker/locker1/', t
     changed();
   }
 
+  // Sự kiện có thể đến trễ: tủ lưu vào bộ đệm vòng khi mất kết nối rồi gửi lại.
+  // seq tăng dần trong một lần khởi động (boot) -> bỏ bản trùng; age (ms) -> thời điểm thật của sự kiện.
   function handleEvent(data) {
     if (typeof data.event !== 'string') return;
     const source = typeof data.source === 'string' ? data.source : '';
-    tracker.handleEvent(data.event, source);
+
+    if (Number.isInteger(data.seq)) {
+      if (lastSeq !== null && data.seq <= lastSeq) {
+        log.add('INFO', 'DUPLICATE_EVENT', `Bỏ qua sự kiện ${data.event} trùng (seq ${data.seq})`);
+        return;
+      }
+      lastSeq = data.seq;
+    }
+    const age = Number.isFinite(data.age) && data.age > 0 ? Math.min(data.age, MAX_EVENT_AGE_MS) : 0;
+    tracker.handleEvent(data.event, source, age ? now() - age : undefined);
+    if (age >= 1000) {
+      log.add('INFO', 'OFFLINE_SYNC', `Đồng bộ sự kiện ${data.event} xảy ra lúc mất kết nối (trễ ${Math.round(age / 1000)}s)`);
+    }
+
     if (data.event === 'TAMPER') {
       log.add('CRITICAL', 'TAMPER', 'Cửa bị mở khi đang khóa – nghi cạy cửa!');
     } else {

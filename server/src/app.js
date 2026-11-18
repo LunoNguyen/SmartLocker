@@ -1,7 +1,11 @@
-// Express app: API OTP + SSE + nhật ký/bất thường. Nhận mọi dependency từ ngoài để test được.
+// Express app: API OTP + SSE + nhật ký/bất thường + thống kê. Nhận mọi dependency từ ngoài để test được.
+// Có `auth` thì mọi API (trừ đăng nhập) cần JWT và phân quyền theo vai trò:
+//   resident – cư dân chủ tủ: xem trạng thái, nhật ký, thống kê, xem mã OTP, tạo mã mới, mở khóa từ xa
+//   admin    – thêm: hủy mã, gỡ khóa bàn phím, xử lý bất thường, xuất CSV
 
 const path = require('path');
 const express = require('express');
+const { computeStats, windowStart } = require('./stats');
 
 const METHOD_LABEL = { OTP: 'Nhập OTP', REMOTE: 'Mở từ xa' };
 const LOCK_LABEL = { DOOR_CLOSED: 'Đóng cửa', TIMEOUT: 'Hết giờ, không mở cửa', UNKNOWN: 'Không rõ' };
@@ -14,6 +18,8 @@ const ANOMALY_LABEL = {
   FREQUENT_UNLOCK: 'Mở quá nhiều lần',
   LOCKER_OFFLINE: 'Tủ mất kết nối'
 };
+
+const FULL_ACCESS = { username: 'local', role: 'admin' }; // khi chạy không bật đăng nhập (test)
 
 const pad = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => (d ? `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : '');
@@ -39,12 +45,12 @@ function accessFilter(q) {
   return { from: parseDay(q.from, false), to: parseDay(q.to, true), method: q.method || undefined };
 }
 
-function createApp({ otp, log, bridge, store, mqttUrl }) {
+function createApp({ otp, log, bridge, store, mqttUrl, auth = null }) {
   const stats = { unresolved: 0 };
   let logsVersion = 0;
-  const sseClients = new Set();
+  const sseClients = new Set(); // { res, user }
 
-  function snapshot() {
+  function snapshot(user = FULL_ACCESS) {
     return {
       otp: otp.getState(),
       locker: bridge.getLocker(),
@@ -58,8 +64,7 @@ function createApp({ otp, log, bridge, store, mqttUrl }) {
   }
 
   function broadcast() {
-    const msg = `data: ${JSON.stringify(snapshot())}\n\n`;
-    sseClients.forEach((res) => res.write(msg));
+    sseClients.forEach(({ res, user }) => res.write(`data: ${JSON.stringify(snapshot(user))}\n\n`));
   }
 
   async function refreshStats() {
@@ -87,49 +92,96 @@ function createApp({ otp, log, bridge, store, mqttUrl }) {
   };
 
   const app = express();
+  app.disable('x-powered-by');
+  app.use((req, res, next) => {
+    res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
+    next();
+  });
   app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use(express.json({ limit: '10kb' }));
+
+  // --- Đăng nhập ---
+  const who = (req) => req.user || FULL_ACCESS;
+  const actor = (req) => `${who(req).username} (${who(req).role})`;
+  let can = () => (req, res, next) => next();
+
+  if (auth) {
+    app.post('/api/auth/login', (req, res) => {
+      const { username, password } = req.body || {};
+      try {
+        const r = auth.login(username, password, req.ip);
+        log.add('INFO', 'LOGIN', `${r.user.username} (${r.user.role}) đăng nhập`);
+        res.set('Set-Cookie', auth.loginCookie(r.token));
+        res.json(r);
+      } catch (err) {
+        if (!err.status) throw err;
+        log.add('WARN', 'LOGIN_FAILED', `Đăng nhập thất bại với tên "${String(username || '').slice(0, 32)}" từ ${req.ip}`);
+        res.status(err.status).json({ error: err.message });
+      }
+    });
+    app.post('/api/auth/logout', (req, res) => {
+      res.set('Set-Cookie', auth.logoutCookie());
+      res.json({ ok: true });
+    });
+    app.use('/api', auth.authenticate);
+    can = auth.requireRole;
+  }
+
+  app.get('/api/auth/me', (req, res) => res.json({ user: who(req), auth: !!auth }));
 
   // --- Trạng thái & OTP ---
-  app.get('/api/state', (req, res) => res.json(snapshot()));
+  app.get('/api/state', (req, res) => res.json(snapshot(who(req))));
 
   app.get('/api/stream', (req, res) => {
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     res.flushHeaders();
-    res.write(`data: ${JSON.stringify(snapshot())}\n\n`);
-    sseClients.add(res);
+    const client = { res, user: who(req) };
+    res.write(`data: ${JSON.stringify(snapshot(client.user))}\n\n`);
+    sseClients.add(client);
     const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
     req.on('close', () => {
       clearInterval(ping);
-      sseClients.delete(res);
+      sseClients.delete(client);
     });
   });
 
-  app.post('/api/otp/rotate', (req, res) => {
+  app.post('/api/otp/rotate', can('resident'), (req, res) => {
     otp.rotate();
-    log.add('INFO', 'OTP_CREATED', 'Admin tạo mã OTP mới');
-    res.json(snapshot());
+    log.add('INFO', 'OTP_CREATED', `${actor(req)} tạo mã OTP mới`);
+    res.json(snapshot(who(req)));
   });
 
-  app.post('/api/otp/revoke', (req, res) => {
+  app.post('/api/otp/revoke', can('admin'), (req, res) => {
     otp.revoke();
-    log.add('WARN', 'OTP_REVOKED', 'Admin hủy mã OTP – tủ không có mã cho tới khi tạo mới');
-    res.json(snapshot());
+    log.add('WARN', 'OTP_REVOKED', `${actor(req)} hủy mã OTP – tủ không có mã cho tới khi tạo mới`);
+    res.json(snapshot(who(req)));
   });
 
-  app.post('/api/lockout/clear', (req, res) => {
+  app.post('/api/lockout/clear', can('admin'), (req, res) => {
     otp.clearLockout();
-    log.add('INFO', 'LOCKOUT_CLEARED', 'Admin gỡ khóa bàn phím');
-    res.json(snapshot());
+    log.add('INFO', 'LOCKOUT_CLEARED', `${actor(req)} gỡ khóa bàn phím`);
+    res.json(snapshot(who(req)));
   });
 
-  app.post('/api/unlock', (req, res) => {
+  app.post('/api/unlock', can('resident'), (req, res) => {
     if (!bridge.sendUnlock()) {
       log.add('WARN', 'REMOTE_UNLOCK_FAILED', 'Không gửi được lệnh mở: server mất kết nối broker');
-      return res.status(503).json(snapshot());
+      return res.status(503).json(snapshot(who(req)));
     }
-    log.add('INFO', 'REMOTE_UNLOCK', 'Admin gửi lệnh mở khóa từ xa');
-    res.json(snapshot());
+    log.add('INFO', 'REMOTE_UNLOCK', `${actor(req)} gửi lệnh mở khóa từ xa`);
+    res.json(snapshot(who(req)));
   });
+
+  // --- Thống kê ---
+  app.get('/api/stats', handle(async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 90);
+    const from = windowStart(days);
+    const [access, anomalies] = await Promise.all([
+      store.listAccess({ from, page: 1, pageSize: 5000 }),
+      store.listAnomalies({ from, page: 1, pageSize: 5000 })
+    ]);
+    res.json(computeStats({ access: access.items, anomalies: anomalies.items, days }));
+  }));
 
   // --- Nhật ký mở khóa ---
   app.get('/api/access-logs', handle(async (req, res) => {
@@ -140,7 +192,7 @@ function createApp({ otp, log, bridge, store, mqttUrl }) {
     res.json({ items, total, page, pageSize });
   }));
 
-  app.get('/api/access-logs.csv', handle(async (req, res) => {
+  app.get('/api/access-logs.csv', can('admin'), handle(async (req, res) => {
     const filter = accessFilter(req.query);
     const { items } = await store.listAccess({ ...filter, page: 1, pageSize: 5000 });
     const header = ['Thời điểm mở khóa', 'Cách mở', 'Số lần sai trước đó', 'Mở cửa lúc', 'Đóng cửa lúc',
@@ -166,13 +218,13 @@ function createApp({ otp, log, bridge, store, mqttUrl }) {
     res.json({ items, total, page, pageSize: 20 });
   }));
 
-  app.post('/api/anomalies/:id/resolve', handle(async (req, res) => {
+  app.post('/api/anomalies/:id/resolve', can('admin'), handle(async (req, res) => {
     if (!(await store.resolveAnomaly(req.params.id))) {
       return res.status(404).json({ error: 'Không tìm thấy hoặc đã xử lý rồi' });
     }
-    log.add('INFO', 'ANOMALY_RESOLVED', 'Admin đánh dấu đã xử lý một bất thường');
+    log.add('INFO', 'ANOMALY_RESOLVED', `${actor(req)} đánh dấu đã xử lý một bất thường`);
     await notifyLogsChanged();
-    res.json(snapshot());
+    res.json(snapshot(who(req)));
   }));
 
   return { app, broadcast, refreshStats, notifyLogsChanged };

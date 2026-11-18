@@ -25,7 +25,8 @@ function createAccessTracker({ store, now = Date.now, config = {}, onChange = ()
   let offlineSince = null;
   let offlineAlerted = false;
 
-  const date = () => new Date(now());
+  let eventAt = null;          // thời điểm thật của sự kiện đang xử lý (sự kiện gửi trễ từ bộ đệm offline)
+  const date = () => new Date(eventAt ?? now());
 
   function enqueue(fn) {
     queue = queue.then(fn).catch((err) => console.warn(`[NHẬT KÝ] Không ghi được: ${err.message}`));
@@ -108,6 +109,34 @@ function createAccessTracker({ store, now = Date.now, config = {}, onChange = ()
     }
   }
 
+  function applyEvent(event, source) {
+    switch (event) {
+      case 'UNLOCKED':
+        startSession(source === 'REMOTE' ? 'REMOTE' : 'OTP');
+        break;
+      case 'DOOR_OPENED':
+        if (session && !session.data.doorOpenedAt) updateSession(session, { doorOpenedAt: date() });
+        break;
+      case 'DOOR_CLOSED':
+        if (session && session.data.doorOpenedAt && !session.data.doorClosedAt) {
+          const closed = date();
+          updateSession(session, {
+            doorClosedAt: closed,
+            openDurationSec: Math.round((closed - session.data.doorOpenedAt) / 1000)
+          });
+        }
+        break;
+      case 'LOCKED':
+        closeSession(LOCK_REASONS[source] || 'UNKNOWN');
+        break;
+      case 'TAMPER':
+        raise('TAMPER', 'CRITICAL', 'Cửa bị mở khi tủ đang khóa – nghi cạy cửa');
+        break;
+      default:
+        break;
+    }
+  }
+
   return {
     handleVerifyResult(r) {
       if (!r) return;
@@ -124,31 +153,12 @@ function createAccessTracker({ store, now = Date.now, config = {}, onChange = ()
       }
     },
 
-    handleEvent(event, source) {
-      switch (event) {
-        case 'UNLOCKED':
-          startSession(source === 'REMOTE' ? 'REMOTE' : 'OTP');
-          break;
-        case 'DOOR_OPENED':
-          if (session && !session.data.doorOpenedAt) updateSession(session, { doorOpenedAt: date() });
-          break;
-        case 'DOOR_CLOSED':
-          if (session && session.data.doorOpenedAt && !session.data.doorClosedAt) {
-            const closed = date();
-            updateSession(session, {
-              doorClosedAt: closed,
-              openDurationSec: Math.round((closed - session.data.doorOpenedAt) / 1000)
-            });
-          }
-          break;
-        case 'LOCKED':
-          closeSession(LOCK_REASONS[source] || 'UNKNOWN');
-          break;
-        case 'TAMPER':
-          raise('TAMPER', 'CRITICAL', 'Cửa bị mở khi tủ đang khóa – nghi cạy cửa');
-          break;
-        default:
-          break;
+    handleEvent(event, source, at) {
+      eventAt = Number.isFinite(at) ? at : null;
+      try {
+        applyEvent(event, source);
+      } finally {
+        eventAt = null;
       }
     },
 

@@ -50,10 +50,10 @@ function createMemoryStore() {
       anomalies.push({ ...doc, id });
       return id;
     },
-    async listAnomalies({ resolved, page, pageSize } = {}) {
+    async listAnomalies({ resolved, from, page, pageSize } = {}) {
       const { skip, size } = pageOf(page, pageSize);
       const list = anomalies
-        .filter((a) => resolved === undefined || a.resolved === resolved)
+        .filter((a) => (resolved === undefined || a.resolved === resolved) && (!from || a.at >= from))
         .sort(byDateDesc('at'));
       return { items: list.slice(skip, skip + size).map((a) => ({ ...a })), total: list.length };
     },
@@ -150,10 +150,11 @@ function createMongoStore(uri, { pingIntervalMs = 5000 } = {}) {
       const r = await anomalyCol.insertOne({ ...doc, accessLogId: doc.accessLogId ? toObjectId(doc.accessLogId) : null });
       return String(r.insertedId);
     },
-    async listAnomalies({ resolved, page, pageSize } = {}) {
+    async listAnomalies({ resolved, from, page, pageSize } = {}) {
       ensure();
       const { skip, size } = pageOf(page, pageSize);
       const q = resolved === undefined ? {} : { resolved };
+      if (from) q.at = { $gte: from };
       const [items, total] = await Promise.all([
         anomalyCol.find(q).sort({ at: -1 }).skip(skip).limit(size).toArray(),
         anomalyCol.countDocuments(q)
