@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Locker – Đăng nhập</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-page">
+  <form id="login-form" class="card login-card">
+    <h1>Smart Locker</h1>
+    <p class="sub">Nhóm 6 · Đăng nhập dashboard quản lý</p>
+    <label>Tên đăng nhập <input name="username" autocomplete="username" required autofocus></label>
+    <label>Mật khẩu <input name="password" type="password" autocomplete="current-password" required></label>
+    <p id="login-error" class="login-error" hidden></p>
+    <button class="btn primary wide" type="submit">Đăng nhập</button>
+    <p class="muted small">Vai trò: <b>cư dân</b> lấy mã, mở tủ từ xa · <b>quản trị</b> toàn quyền</p>
+  </form>
+  <script>
+    const form = document.getElementById('login-form');
+    const err = document.getElementById('login-error');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.hidden = true;
+      const body = Object.fromEntries(new FormData(form));
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Lỗi ${res.status}`);
+        location.href = '/';
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.hidden = false;
+      }
+    };
+  </script>
+</body>
+</html>
